@@ -1,0 +1,240 @@
+[
+  {
+    "id": "can-tho",
+    "name": "Cần Thơ",
+    "fullName": "thành phố Cần Thơ",
+    "lat": 10.0372,
+    "lon": 105.7883
+  },
+  {
+    "id": "hue",
+    "name": "Huế",
+    "fullName": "thành phố Huế",
+    "lat": 16.4619,
+    "lon": 107.5853
+  },
+  {
+    "id": "ha-noi",
+    "name": "Hà Nội",
+    "fullName": "thành phố Hà Nội",
+    "lat": 21.0283,
+    "lon": 105.8544
+  },
+  {
+    "id": "hai-phong",
+    "name": "Hải Phòng",
+    "fullName": "thành phố Hải Phòng",
+    "lat": 20.9179864,
+    "lon": 106.6748497
+  },
+  {
+    "id": "ho-chi-minh",
+    "name": "TP. Hồ Chí Minh",
+    "fullName": "Thành phố Hồ Chí Minh",
+    "lat": 10.7766,
+    "lon": 106.7009
+  },
+  {
+    "id": "da-nang",
+    "name": "Đà Nẵng",
+    "fullName": "thành phố Đà Nẵng",
+    "lat": 16.0769,
+    "lon": 108.2228
+  },
+  {
+    "id": "an-giang",
+    "name": "An Giang",
+    "fullName": "tỉnh An Giang",
+    "lat": 10.0127,
+    "lon": 105.0809
+  },
+  {
+    "id": "bac-ninh",
+    "name": "Bắc Ninh",
+    "fullName": "thành phố Bắc Ninh",
+    "lat": 21.2757,
+    "lon": 106.2005
+  },
+  {
+    "id": "cao-bang",
+    "name": "Cao Bằng",
+    "fullName": "tỉnh Cao Bằng",
+    "lat": 22.6766,
+    "lon": 106.2216
+  },
+  {
+    "id": "ca-mau",
+    "name": "Cà Mau",
+    "fullName": "tỉnh Cà Mau",
+    "lat": 9.1761,
+    "lon": 105.1519
+  },
+  {
+    "id": "gia-lai",
+    "name": "Gia Lai",
+    "fullName": "tỉnh Gia Lai",
+    "lat": 13.7700566,
+    "lon": 109.2317824
+  },
+  {
+    "id": "ha-tinh",
+    "name": "Hà Tĩnh",
+    "fullName": "tỉnh Hà Tĩnh",
+    "lat": 18.3432,
+    "lon": 105.9054
+  },
+  {
+    "id": "hung-yen",
+    "name": "Hưng Yên",
+    "fullName": "tỉnh Hưng Yên",
+    "lat": 20.6558,
+    "lon": 106.0547
+  },
+  {
+    "id": "khanh-hoa",
+    "name": "Khánh Hòa",
+    "fullName": "tỉnh Khánh Hòa",
+    "lat": 12.2348769,
+    "lon": 109.1941443
+  },
+  {
+    "id": "lai-chau",
+    "name": "Lai Châu",
+    "fullName": "tỉnh Lai Châu",
+    "lat": 22.3893,
+    "lon": 103.4764
+  },
+  {
+    "id": "lao-cai",
+    "name": "Lào Cai",
+    "fullName": "tỉnh Lào Cai",
+    "lat": 21.7229,
+    "lon": 104.9114
+  },
+  {
+    "id": "lam-dong",
+    "name": "Lâm Đồng",
+    "fullName": "tỉnh Lâm Đồng",
+    "lat": 11.9359,
+    "lon": 108.4429
+  },
+  {
+    "id": "lang-son",
+    "name": "Lạng Sơn",
+    "fullName": "tỉnh Lạng Sơn",
+    "lat": 21.8468048,
+    "lon": 106.754488
+  },
+  {
+    "id": "nghe-an",
+    "name": "Nghệ An",
+    "fullName": "tỉnh Nghệ An",
+    "lat": 18.6732,
+    "lon": 105.6923
+  },
+  {
+    "id": "ninh-binh",
+    "name": "Ninh Bình",
+    "fullName": "tỉnh Ninh Bình",
+    "lat": 20.2581,
+    "lon": 105.9766
+  },
+  {
+    "id": "phu-tho",
+    "name": "Phú Thọ",
+    "fullName": "tỉnh Phú Thọ",
+    "lat": 21.3231,
+    "lon": 105.4017
+  },
+  {
+    "id": "quang-ngai",
+    "name": "Quảng Ngãi",
+    "fullName": "tỉnh Quảng Ngãi",
+    "lat": 15.1222,
+    "lon": 108.8009
+  },
+  {
+    "id": "quang-ninh",
+    "name": "Quảng Ninh",
+    "fullName": "thành phố Quảng Ninh",
+    "lat": 20.9454443,
+    "lon": 107.1073079
+  },
+  {
+    "id": "quang-tri",
+    "name": "Quảng Trị",
+    "fullName": "tỉnh Quảng Trị",
+    "lat": 17.4598499,
+    "lon": 106.6122345
+  },
+  {
+    "id": "son-la",
+    "name": "Sơn La",
+    "fullName": "tỉnh Sơn La",
+    "lat": 21.3209,
+    "lon": 103.9114
+  },
+  {
+    "id": "thanh-hoa",
+    "name": "Thanh Hóa",
+    "fullName": "tỉnh Thanh Hóa",
+    "lat": 19.8074,
+    "lon": 105.7752
+  },
+  {
+    "id": "thai-nguyen",
+    "name": "Thái Nguyên",
+    "fullName": "tỉnh Thái Nguyên",
+    "lat": 21.5952,
+    "lon": 105.8406
+  },
+  {
+    "id": "tuyen-quang",
+    "name": "Tuyên Quang",
+    "fullName": "tỉnh Tuyên Quang",
+    "lat": 21.8202,
+    "lon": 105.1923
+  },
+  {
+    "id": "tay-ninh",
+    "name": "Tây Ninh",
+    "fullName": "tỉnh Tây Ninh",
+    "lat": 10.5413,
+    "lon": 106.4139
+  },
+  {
+    "id": "vinh-long",
+    "name": "Vĩnh Long",
+    "fullName": "tỉnh Vĩnh Long",
+    "lat": 10.2512,
+    "lon": 105.9475
+  },
+  {
+    "id": "dien-bien",
+    "name": "Điện Biên",
+    "fullName": "tỉnh Điện Biên",
+    "lat": 21.4141,
+    "lon": 103.0577
+  },
+  {
+    "id": "dak-lak",
+    "name": "Đắk Lắk",
+    "fullName": "tỉnh Đắk Lắk",
+    "lat": 12.674,
+    "lon": 108.0435
+  },
+  {
+    "id": "dong-nai",
+    "name": "Đồng Nai",
+    "fullName": "thành phố Đồng Nai",
+    "lat": 10.9456,
+    "lon": 106.8177
+  },
+  {
+    "id": "dong-thap",
+    "name": "Đồng Tháp",
+    "fullName": "tỉnh Đồng Tháp",
+    "lat": 10.3532,
+    "lon": 106.3631
+  }
+]

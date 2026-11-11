@@ -1,0 +1,7 @@
+node_modules
+dist
+test-results
+tests/uat/shots
+
+# private mentoring notes, never published
+drafts/
