@@ -1,0 +1,193 @@
+{
+  "app": {
+    "title": "Bản đồ bão",
+    "loading": "Đang tải bản đồ…",
+    "globe": "Bản đồ quả địa cầu"
+  },
+  "top": {
+    "source": "Nguồn dữ liệu",
+    "settings": "Cài đặt"
+  },
+  "demo": {
+    "label": "Bão mô phỏng, dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): {now}"
+  },
+  "cone": {
+    "legend": "Vòng tròn: tâm bão có khoảng 70% khả năng đi vào (bán kính trung bình năm 2023 của Cơ quan Khí tượng Nhật Bản)"
+  },
+  "summary": {
+    "text": "Bão {name} · đang ở biển Đông · sức gió cấp {n} (ước tính)"
+  },
+  "check": {
+    "button": "Nhà tôi có bị ảnh hưởng không?",
+    "locating": "Đang tìm vị trí của bạn…"
+  },
+  "place": {
+    "yours": "Vị trí của bạn"
+  },
+  "picker": {
+    "failed": "Không lấy được vị trí. Chọn tỉnh của bạn:",
+    "label": "Chọn tỉnh của bạn:",
+    "placeholder": "— Chọn tỉnh —"
+  },
+  "verdict": {
+    "headAffected": "Có. Gió từ cấp 8 trở lên sẽ tới {place}",
+    "when": "Từ khoảng {from} đến {to}",
+    "wind": "Sức gió lớn nhất: cấp {n} (ước tính)",
+    "actionsAffected": "Bạn nên làm ngay",
+    "headUnaffected": "Không. {place} nằm ngoài vùng gió từ cấp 8 trở lên",
+    "closest": "Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}",
+    "note": "Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.",
+    "actionsUnaffected": "Vẫn nên theo dõi tin bão",
+    "recheck": "Chọn nơi khác"
+  },
+  "actions": {
+    "items": [
+      "Cả nhà bàn trước chỗ trú ẩn an toàn nhất; khi chính quyền yêu cầu thì sơ tán ngay.",
+      "Dự trữ đủ lương thực, nước uống, thuốc men và đồ dùng thiết yếu.",
+      "Tuyệt đối không ra ngoài khi bão đang đổ bộ, trừ khi khẩn cấp và có hướng dẫn của chính quyền."
+    ],
+    "source": "Nguồn: khuyến cáo của Cục Quản lý đê điều và Phòng, chống thiên tai (đăng trên Báo Luật sư Việt Nam); Cổng thông tin điện tử tỉnh Hà Tĩnh."
+  },
+  "timeline": {
+    "title": "Các tỉnh, theo thời gian gió từ cấp 8 trở lên tới",
+    "range": "{from} – {to}",
+    "far": "cách {km} km"
+  },
+  "slider": {
+    "label": "Thời gian"
+  },
+  "learn": {
+    "more": "Tìm hiểu thêm"
+  },
+  "cards": {
+    "wind": {
+      "title": "Cấp gió là gì?",
+      "body": [
+        "\"Cấp gió\" là bậc đo sức gió theo thang Bô-pho. Sức gió mạnh nhất của bão là tốc độ gió trung bình lớn nhất đo trong 2 phút.",
+        "Áp thấp nhiệt đới: gió mạnh nhất cấp 6–7. Bão: từ cấp 8. Bão mạnh: cấp 10–11. Bão rất mạnh: cấp 12–15. Siêu bão: từ cấp 16 trở lên.",
+        "Cấp 6–7 (39–61 km/giờ): cây cối rung chuyển, khó đi ngược gió. Cấp 8–9 (62–88 km/giờ): gãy cành cây, tốc mái nhà. Cấp 10–11 (89–117 km/giờ): đổ cây, đổ nhà, đổ cột điện. Từ cấp 12 (118 km/giờ trở lên): sức phá hoại cực kỳ lớn.",
+        "Cấp gió trên trang này là ước tính: số liệu gốc của Mỹ tính gió trung bình trong 1 phút, còn Việt Nam tính trong 2 phút, nên cấp thật có thể thấp hơn một chút."
+      ],
+      "source": "Nguồn: Quyết định 18/2021/QĐ-TTg; bản tin bão của Trung tâm Dự báo khí tượng thủy văn quốc gia; IBTrACS (NOAA)."
+    },
+    "radius": {
+      "title": "Vùng gió mạnh là gì?",
+      "body": [
+        "Bản tin bão của Việt Nam gọi nơi có gió từ cấp 6 trở lên do bão gây ra là vùng gió mạnh.",
+        "Trên bản đồ này, vùng tô màu quanh tâm bão là nơi có gió từ cấp 8 trở lên. Số liệu dùng ở đây không có vùng gió cấp 6, nên nơi ngoài vùng tô màu vẫn có thể có gió cấp 6–7.",
+        "Các vòng tròn cho biết nơi tâm bão có khoảng 70% khả năng đi vào sau 24, 48 và 72 giờ. Bản tin bão của Việt Nam cũng vẽ vòng tròn 70% như vậy."
+      ],
+      "source": "Nguồn: Quyết định 18/2021/QĐ-TTg; Cơ quan Khí tượng Nhật Bản, báo cáo năm 2023; IBTrACS (NOAA)."
+    },
+    "safety": {
+      "title": "Làm gì khi bão tới?",
+      "sections": [
+        {
+          "heading": "Trước bão",
+          "items": [
+            "Theo dõi dự báo, cảnh báo và cập nhật diễn biến của bão để chủ động phòng tránh.",
+            "Hoãn hoặc hủy chuyến đi khi thời tiết xấu; không đến vùng ven biển, đảo, vùng núi, nơi dễ sạt lở, lũ quét.",
+            "Cả nhà bàn trước chỗ trú ẩn an toàn nhất; khi chính quyền yêu cầu thì sơ tán ngay.",
+            "Dự trữ đủ lương thực, nước uống, thuốc men và đồ dùng thiết yếu.",
+            "Gia cố nhà cửa, chặt tỉa cành cây, hạ biển quảng cáo dễ rơi đổ.",
+            "Kê cao đồ đạc, cất giữ giấy tờ quan trọng nơi an toàn, đưa xe lên chỗ cao.",
+            "Lưu sẵn số điện thoại cứu hộ, cứu nạn để gọi khi cần."
+          ]
+        },
+        {
+          "heading": "Giữ nhà",
+          "items": [
+            "Cài chặt then, chốt cửa; chèn thêm đòn tre hoặc gỗ.",
+            "Dán cửa kính bằng băng dính bản to.",
+            "Bịt kín khe hở giữa đỉnh tường và mái, lỗ thông gió, nhất là nhà cấp bốn cũ.",
+            "Chằng mái ngói bằng bao cát, túi nước để mái không bị tốc."
+          ]
+        },
+        {
+          "heading": "Khi bão đổ bộ",
+          "items": [
+            "Tuyệt đối không ra ngoài khi bão đang đổ bộ, trừ khi khẩn cấp và có hướng dẫn của chính quyền.",
+            "Khi bão đổ bộ, không ở lại trên tàu thuyền đã neo, chòi canh hay lồng bè nuôi cá."
+          ]
+        },
+        {
+          "heading": "Sau bão",
+          "items": [
+            "Sau bão, kiểm tra điện và đồ điện trước khi dùng; cẩn thận cây và biển quảng cáo nghiêng đổ trên đường.",
+            "Sau bão vẫn theo dõi tin mưa lũ; nhà ở vùng ngập sâu, dễ lũ quét, sạt lở thì sơ tán kịp thời."
+          ]
+        }
+      ],
+      "source": "Nguồn: khuyến cáo của Cục Quản lý đê điều và Phòng, chống thiên tai (đăng trên Báo Luật sư Việt Nam); Cổng thông tin điện tử tỉnh Hà Tĩnh."
+    }
+  },
+  "settings": {
+    "title": "Cài đặt",
+    "text": "Cỡ chữ",
+    "textOptions": {
+      "16": "Vừa",
+      "20": "Lớn",
+      "24": "Rất lớn"
+    },
+    "theme": "Màu nền",
+    "themeOptions": {
+      "light": "Sáng",
+      "dark": "Tối"
+    },
+    "mode": "Chế độ",
+    "modeOptions": {
+      "easy": "Dễ dùng",
+      "full": "Đầy đủ"
+    },
+    "credits": "Ghi công",
+    "creditLines": [
+      "Usui-chan, linh vật của CLB Thiên văn USAC",
+      "Đường đi bão: IBTrACS v04r01 (NOAA)",
+      "Đường bờ biển: Natural Earth",
+      "Tọa độ tỉnh: © những người đóng góp OpenStreetMap"
+    ],
+    "testData": "Dữ liệu thử nghiệm",
+    "export": "Xuất dữ liệu thử nghiệm",
+    "clear": "Xóa dữ liệu",
+    "cleared": "Đã xóa dữ liệu thử nghiệm.",
+    "close": "Đóng"
+  },
+  "onboarding": {
+    "title": "Chào bạn",
+    "step": "Bước {n}/3",
+    "textTitle": "Chọn cỡ chữ",
+    "preview": "Chữ trên trang sẽ to như dòng này.",
+    "modeTitle": "Chọn chế độ",
+    "easyLine": "Chỉ hiện điều quan trọng nhất: bão có tới chỗ bạn không, khi nào, và nên làm gì.",
+    "fullLine": "Thêm thanh thời gian, danh sách các tỉnh, và cho xoay, phóng to bản đồ.",
+    "geoTitle": "Vị trí của bạn",
+    "geo": "Trang này có thể hỏi vị trí của bạn để biết bão có tới chỗ bạn không. Bạn có thể chọn tỉnh thay vì cho vị trí.",
+    "next": "Tiếp",
+    "skip": "Bỏ qua"
+  },
+  "satellite": {
+    "heading": "Vệ tinh GK-2A",
+    "facts": [
+      "GK-2A là vệ tinh khí tượng của Hàn Quốc, phóng lên quỹ đạo vào tháng 12 năm 2018 và chính thức cung cấp dữ liệu từ ngày 25 tháng 7 năm 2019.",
+      "GK-2A bay trên quỹ đạo địa tĩnh, nghĩa là luôn đứng yên trên cùng một điểm so với mặt đất, ở kinh độ 128,2 độ Đông, cách mặt đất 35.786 km.",
+      "Máy chụp ảnh chính của vệ tinh là AMI (Máy chụp ảnh khí tượng tiên tiến), quan sát ở 16 kênh ánh sáng khác nhau, so với 5 kênh của vệ tinh đời trước COMS.",
+      "Cứ 10 phút, vệ tinh chụp một ảnh trọn mặt Trái Đất nhìn thấy được; vùng bán đảo Triều Tiên thì cứ 2 phút chụp một lần.",
+      "Độ phân giải ảnh là 0,5 hoặc 1 km cho các kênh ánh sáng nhìn thấy, và 2 km cho các kênh hồng ngoại.",
+      "Máy chụp AMI có thể hướng vào từng vùng cần theo dõi, rất hữu ích để theo dõi thời tiết nguy hiểm như bão và núi lửa phun; dữ liệu của nó tạo ra 52 loại sản phẩm để theo dõi bão, mưa lớn, sương mù và bụi vàng châu Á.",
+      "Nhiệm vụ chính của GK-2A là quan sát thời tiết và khí quyển trên vùng châu Á – Thái Bình Dương; vệ tinh còn mang thiết bị theo dõi thời tiết vũ trụ (KSEM).",
+      "Vệ tinh do Cục Khí tượng Hàn Quốc (KMA), qua Trung tâm Vệ tinh Khí tượng Quốc gia (NMSC), phụ trách xử lý và phát dữ liệu; còn Viện Nghiên cứu Hàng không Vũ trụ Hàn Quốc (KARI) phụ trách điều khiển vệ tinh.",
+      "Vệ tinh được thiết kế để hoạt động 10 năm.",
+      "Hình vệ tinh trên màn hình chỉ là mô hình minh họa, không đúng tỉ lệ."
+    ],
+    "source": "Nguồn: Trung tâm Vệ tinh Khí tượng Quốc gia Hàn Quốc (NMSC), GK2A Fact Sheets; WMO OSCAR; Kim và cộng sự (2021), Remote Sensing.",
+    "back": "Quay lại bản đồ"
+  },
+  "marker": {
+    "storm": "Tâm bão",
+    "pin": "Nơi bạn chọn",
+    "satellite": "Vệ tinh GK-2A"
+  },
+  "assistant": {
+    "where": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính)."
+  }
+}
