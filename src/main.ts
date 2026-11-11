@@ -1,5 +1,6 @@
 // Entry: builds the page, links the store to the UI, loads the globe lazily, exposes the test hooks (SPEC 8).
 import './styles.css';
+import { assistant } from './assistant';
 import { CONE, createActions, createStore, NOW_MS, PROVINCES, reducedMotion, TRACK } from './app';
 import { t } from './i18n';
 import { events, logEvent } from './log';
@@ -45,7 +46,7 @@ const panelMain = h(
   learnBlock(store),
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
-document.getElementById('app')?.replaceChildren(topbar, globeEl, panel, settings.el);
+document.getElementById('app')?.replaceChildren(topbar, globeEl, panel, assistant(store, actions), settings.el);
 
 // Esc leaves the satellite view (dialogs handle their own Esc).
 document.addEventListener('keydown', (e) => {

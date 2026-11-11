@@ -188,6 +188,26 @@
     "satellite": "Vệ tinh GK-2A"
   },
   "assistant": {
-    "where": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính)."
+    "avatar": "Hỏi Usui-chan",
+    "poseAlt": "Usui-chan",
+    "sheetTitle": "Bạn muốn hỏi mình điều gì?",
+    "close": "Đóng",
+    "warning": "{place} sẽ có gió từ cấp 8 trở lên từ khoảng {firstInside}. Bấm vào mình nếu cần hỏi gì nhé.",
+    "chips": {
+      "affected": "Nhà tôi có bị ảnh hưởng không?",
+      "when": "Khi nào bão tới chỗ tôi?",
+      "prepare": "Tôi cần chuẩn bị gì?",
+      "windlevel": "Cấp gió là gì?",
+      "radius": "Vùng gió mạnh là gì?",
+      "where": "Bão đang ở đâu?",
+      "source": "Dữ liệu này lấy từ đâu?"
+    },
+    "whenAffected": "Theo mình tính, {place} có gió từ cấp 8 trở lên từ khoảng {from} đến khoảng {to}.",
+    "whenUnaffected": "Theo mình tính, {place} nằm ngoài vùng gió từ cấp 8 trở lên; tâm bão gần nhất cách đó khoảng {km} km, lúc {time}. Nơi bạn chọn vẫn có thể có gió cấp 6–7 và mưa lớn.",
+    "prepare": "Bạn nên làm ngay ba việc này:",
+    "card": "Mình chép lại thẻ \"{title}\" cho bạn đọc nhé:",
+    "source": "Mình mở phần vệ tinh GK-2A cho bạn xem nhé.",
+    "where": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính).",
+    "whereNoWind": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông."
   }
 }

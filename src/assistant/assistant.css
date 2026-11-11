@@ -1,0 +1,190 @@
+/* Usui-chan (SPEC 6.4). Colours from the tokens in styles.css. Motion only under no-preference. */
+
+.assistant-avatar {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 2px solid var(--border-control);
+  border-radius: 50%;
+  background: var(--surface-2);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.assistant-avatar__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.assistant-avatar:hover,
+.assistant-avatar[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.assistant-avatar:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.assistant-x {
+  flex: none;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.assistant-x:hover {
+  border-color: var(--border-control);
+}
+
+/* ---- Warning pop-up. Phone: above the portrait. Desktop: lower right of the globe, above the circle legend,
+   so it covers neither the panel nor the legend. */
+.assistant-warning {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;
+  z-index: 31;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 10px 6px 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--affected);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+@media (min-width: 900px) {
+  .assistant-warning {
+    right: calc(var(--panel-w) + 16px);
+    bottom: calc(24px + 4.5rem);
+  }
+}
+
+.assistant-warning__face {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.assistant-warning__text {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  font-weight: bold;
+}
+
+/* ---- Question sheet, above the portrait. */
+.assistant-sheet {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;
+  z-index: 32;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  width: min(388px, calc(100vw - 32px));
+  max-height: calc(100vh - var(--topbar-h) - 100px);
+  max-height: calc(100dvh - var(--topbar-h) - 100px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.assistant-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.assistant-sheet__pose {
+  flex: none;
+  width: 64px;
+  height: auto;
+}
+
+.assistant-sheet__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.125rem;
+}
+
+.assistant-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assistant-chip {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  max-width: 100%;
+  padding: 8px 14px;
+  border: 1px solid var(--border-control);
+  border-radius: 22px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-chip:hover {
+  border-color: var(--accent);
+}
+
+.assistant-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: var(--gap);
+  border-top: 1px solid var(--border);
+}
+
+.assistant-answer__line {
+  font-weight: bold;
+}
+
+.assistant-answer__items {
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.assistant-answer__items li + li {
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-avatar {
+    transition: border-color 0.15s ease;
+  }
+}
+
+.assistant {
+  display: contents;
+}
