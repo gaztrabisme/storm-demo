@@ -1,0 +1,23 @@
+/* Province names on the globe (full mode). Owned by the lazy globe chunk. */
+.globe__labels {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.globe__label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--globe-text);
+  text-shadow:
+    0 0 2px var(--globe-bg),
+    0 0 3px var(--globe-bg),
+    0 0 4px var(--globe-bg);
+  will-change: transform;
+}
