@@ -53,17 +53,18 @@
   border-color: var(--border-control);
 }
 
-/* ---- Warning pop-up. Phone: above the portrait. Desktop: lower right of the globe, above the circle legend,
-   so it covers neither the panel nor the legend. */
+/* ---- Warning pop-up, docked in the globe's bottom stack (main.ts), so it never covers the panel.
+   The globe frames the place and the storm above it. Phone: full width, over the map key and the circle
+   legend, so the open map stays as tall as possible. Desktop: lower right of the globe, above the legends. */
 .assistant-warning {
-  position: fixed;
-  right: 16px;
-  bottom: 84px;
-  z-index: 31;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  width: min(360px, calc(100vw - 32px));
   padding: 10px 6px 10px 12px;
   border: 1px solid var(--border);
   border-left: 4px solid var(--affected);
@@ -75,8 +76,9 @@
 
 @media (min-width: 900px) {
   .assistant-warning {
-    right: calc(var(--panel-w) + 16px);
-    bottom: calc(24px + 4.5rem);
+    position: static;
+    align-self: flex-end;
+    width: min(360px, 100%);
   }
 }
 
@@ -106,8 +108,7 @@
   width: min(388px, calc(100vw - 32px));
   max-height: calc(100vh - var(--topbar-h) - 100px);
   max-height: calc(100dvh - var(--topbar-h) - 100px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -132,6 +133,45 @@
   flex: 1;
   min-width: 0;
   font-size: 1.125rem;
+}
+
+.assistant-sheet__title-btn {
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: bold;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Phone: once a chip is answered, the questions fold away so the answer sits right under the title and the
+   sheet shrinks to it (the globe frames the storm above it). The title brings them back. */
+@media (max-width: 899px) {
+  .assistant-sheet.is-answered .assistant-chips {
+    display: none;
+  }
+
+  .assistant-sheet.is-answered .assistant-answer {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .assistant-sheet.is-answered .assistant-sheet__title-btn {
+    text-decoration: underline;
+  }
+}
+
+.assistant-sheet__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .assistant-chips {

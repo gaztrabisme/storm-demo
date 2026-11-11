@@ -26,8 +26,11 @@ const FLY_PLACE_MS = 1600;
 const FLY_SAT_MS = 4000;
 const FLY_MODE_MS = 900;
 
-/** Camera for the satellite view: about 42,700 km from Earth's centre, just behind GK-2A and north-west of it. */
-const SAT_CAM = { lat: 0.12, lon: 128.08, dist: 42700 / EARTH_KM };
+/**
+ * Camera for the satellite view: about 42,700 km from Earth's centre, just behind GK-2A and north-west of it,
+ * far enough off its line of sight that the model is drawn clear of the Earth's edge.
+ */
+const SAT_CAM = { lat: 0.15, lon: 128.05, dist: 42700 / EARTH_KM };
 
 /** Unit vector (times r) for (lat, lon). */
 function vec(lat: number, lon: number, r = 1, out = new THREE.Vector3()): THREE.Vector3 {
@@ -221,7 +224,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const labelX = new Float32Array(nLabels).fill(NaN);
   const labelY = new Float32Array(nLabels).fill(NaN);
   const labelOn = new Uint8Array(nLabels);
-  const placed = new Float32Array(nLabels * 4);
+  let placed = new Float32Array((nLabels + 8) * 4);
   let labelsMeasured = false;
   function measureLabels(): void {
     labelLayer.hidden = false;
@@ -258,6 +261,56 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const stormEl = overlay('storm-marker', 'globe__storm', init.labels.storm);
   const pinEl = overlay('place-pin', 'globe__pin', init.labels.pin);
   const satEl = overlay('satellite-model', 'globe__sat', init.labels.satellite);
+  // The place's name beside the pin, and "GK-2A" on a leader line pointing away from the Earth.
+  const pinName = document.createElement('span');
+  pinName.className = 'globe__pin-name';
+  pinName.setAttribute('aria-hidden', 'true');
+  pinEl.append(pinName);
+  let pinNameW = -1;
+  const satLead = document.createElement('span');
+  satLead.className = 'globe__sat-lead';
+  const satName = document.createElement('span');
+  satName.className = 'globe__sat-name';
+  satName.setAttribute('aria-hidden', 'true');
+  satName.textContent = init.labels.satName;
+  satEl.append(satLead, satName);
+  let satDir = [NaN, NaN];
+
+  // ---------------------------------------------------------------- What covers the globe
+  /** Boxes (x0, y0, x1, y1, container pixels) of the init.covers elements that are shown over the canvas. */
+  function coverBoxes(): number[][] {
+    const els = init.covers?.() ?? [];
+    if (!els.length) return [];
+    const g = container.getBoundingClientRect();
+    const out: number[][] = [];
+    for (const el of els) {
+      if (!el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const x0 = Math.max(0, r.left - g.left);
+      const x1 = Math.min(width, r.right - g.left);
+      const y0 = Math.max(0, r.top - g.top);
+      const y1 = Math.min(height, r.bottom - g.top);
+      if (x1 > x0 && y1 > y0) out.push([x0, y0, x1, y1]);
+    }
+    return out;
+  }
+  /** Heights covered at the top and at the bottom of the canvas, with a margin; they leave at least 40 % open. */
+  function insets(): { top: number; bottom: number } {
+    let top = 0;
+    let bottom = 0;
+    for (const [, y0, , y1] of coverBoxes()) {
+      if ((y0 + y1) / 2 < height / 2) top = Math.max(top, y1 + 8);
+      else bottom = Math.max(bottom, height - y0 + 8);
+    }
+    const max = height * 0.6;
+    if (top + bottom > max) {
+      const k = max / (top + bottom);
+      top *= k;
+      bottom *= k;
+    }
+    return { top, bottom };
+  }
 
   // ---------------------------------------------------------------- Camera
   const tanHalfMin = () => {
@@ -269,6 +322,26 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   /** Easy mode's locked view: Vietnam and the storm at now. */
   const homeCam = (): Cam => ({ lat: 15.5, lon: 108.5, dist: fitDist(13) });
 
+  /**
+   * Camera that shows a cap of angular radius halfDeg around (lat, lon) in the open band between the covers:
+   * the distance fits the band's height, and the camera moves north or south so the cap's centre lands in
+   * the middle of the band rather than the middle of the canvas.
+   */
+  function framed(lat: number, lon: number, halfDeg: number): Cam {
+    const { top, bottom } = insets();
+    const tanFov = Math.tan((camera.fov / 2) * RAD);
+    const band = Math.max(1, height - top - bottom);
+    const tanHalf = Math.min(tanFov * (band / height), tanFov * camera.aspect);
+    const a = halfDeg * RAD;
+    const dist = Math.max(1.3, Math.cos(a) + Math.sin(a) / tanHalf);
+    // View angle (as a tangent) from the canvas centre down to the band centre; positive when the band sits low.
+    const tv = ((top - bottom) / 2 / (height / 2)) * tanFov;
+    // Surface angle phi seen at that view angle from distance d: tan(beta) = sin(phi) / (d - cos(phi)).
+    const s = Math.max(-1, Math.min(1, (tv * dist) / Math.sqrt(1 + tv * tv)));
+    const phi = (Math.asin(s) - Math.atan(tv)) / RAD;
+    return { lat: Math.max(-85, Math.min(85, lat + phi)), lon, dist };
+  }
+
   /** The smallest cap holding the place and the track from now on, as a camera. */
   function placeCam(p: LatLon): Cam {
     const pts: THREE.Vector3[] = [vec(p.lat, p.lon)];
@@ -279,11 +352,11 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     mid.normalize();
     let half = 0;
     for (const v of pts) half = Math.max(half, mid.angleTo(v) / RAD);
-    return { lat: Math.asin(mid.y) / RAD, lon: Math.atan2(-mid.z, mid.x) / RAD, dist: fitDist(half + 3) };
+    return framed(Math.asin(mid.y) / RAD, Math.atan2(-mid.z, mid.x) / RAD, half + 3);
   }
   function stormCam(): Cam | null {
     const s = trackAt(track, timeMs);
-    return s ? { lat: s.lat, lon: s.lon, dist: fitDist(9) } : null;
+    return s ? framed(s.lat, s.lon, 9) : null;
   }
 
   let cam: Cam = homeCam();
@@ -410,7 +483,42 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     placeOverlay(stormEl, stormKnown && !satView ? stormWorld : null, true, last.storm);
     placeOverlay(pinEl, place && !satView ? pinWorld : null, true, last.pin);
     placeOverlay(satEl, satView ? satWorld : null, false, last.sat);
+    if (!satEl.hidden) placeSatName();
     updateLabels();
+  }
+
+  /** Leader line and "GK-2A" on the side of the model that points away from the Earth on screen. */
+  function placeSatName(): void {
+    const sx = last.sat[0];
+    const sy = last.sat[1];
+    proj.set(0, 0, 0).project(camera);
+    let ax = sx - (proj.x * 0.5 + 0.5) * width;
+    let ay = sy - (-proj.y * 0.5 + 0.5) * height;
+    const n = Math.hypot(ax, ay) || 1;
+    ax /= n;
+    ay /= n;
+    const r0 = 34;
+    const len = 26;
+    const w = satName.offsetWidth;
+    const h = satName.offsetHeight;
+    // Away from the Earth first; if the name would leave the canvas, straight down or up instead.
+    const sy0 = Math.sign(ay) || 1;
+    let dx = ax;
+    let dy = ay;
+    let reach = 0;
+    for (const [cx, cy] of [[ax, ay], [0, sy0], [0, -sy0], [-ax, ay]]) {
+      reach = r0 + len + 4 + Math.abs(cx) * (w / 2) + Math.abs(cy) * (h / 2);
+      const x = sx + cx * reach;
+      const y = sy + cy * reach;
+      dx = cx;
+      dy = cy;
+      if (x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h / 2 >= 4 && y + h / 2 <= height - 4) break;
+    }
+    if (Math.abs(dx - satDir[0]) < 0.01 && Math.abs(dy - satDir[1]) < 0.01) return;
+    satDir = [dx, dy];
+    satLead.style.width = `${len}px`;
+    satLead.style.transform = `translate(${32 + dx * r0}px, ${32 + dy * r0}px) rotate(${Math.atan2(dy, dx)}rad)`;
+    satName.style.transform = `translate(${32 + dx * reach - w / 2}px, ${32 + dy * reach - h / 2}px)`;
   }
 
   /** Province names in full mode. A label that would overlap one already placed is left out. */
@@ -419,7 +527,24 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     if (labelLayer.hidden === show) labelLayer.hidden = !show;
     if (!show) return;
     if (!labelsMeasured) measureLabels();
+    // Boxes a name may not overlap: the pin with its name, the storm marker, and what covers the globe.
     let n = 0;
+    const occupy = (x0: number, y0: number, x1: number, y1: number) => {
+      const o = n * 4;
+      placed[o] = x0;
+      placed[o + 1] = y0;
+      placed[o + 2] = x1;
+      placed[o + 3] = y1;
+      n++;
+    };
+    const fixed = coverBoxes();
+    if (placed.length < (nLabels + fixed.length + 2) * 4) placed = new Float32Array((nLabels + fixed.length + 2) * 4);
+    for (const [x0, y0, x1, y1] of fixed) occupy(x0, y0, x1, y1);
+    if (!pinEl.hidden) {
+      if (pinNameW < 0) pinNameW = pinName.textContent ? pinName.offsetWidth : 0;
+      occupy(last.pin[0] - 14, last.pin[1] - 32, last.pin[0] + 14 + pinNameW, last.pin[1] + 2);
+    }
+    if (!stormEl.hidden) occupy(last.storm[0] - 16, last.storm[1] - 16, last.storm[0] + 16, last.storm[1] + 16);
     for (let i = 0; i < nLabels; i++) {
       let on = screen(provWorld[i], true);
       const x = proj.x + 7;
@@ -434,14 +559,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
           }
         }
       }
-      if (on) {
-        const o = n * 4;
-        placed[o] = x - 2;
-        placed[o + 1] = y - 1;
-        placed[o + 2] = x + labelW[i] + 2;
-        placed[o + 3] = y + labelH[i] + 1;
-        n++;
-      }
+      if (on) occupy(x - 2, y - 1, x + labelW[i] + 2, y + labelH[i] + 1);
       const el = labels[i];
       if ((labelOn[i] === 1) !== on) {
         labelOn[i] = on ? 1 : 0;
@@ -483,6 +601,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     for (const m of lineMats) m.resolution.set(width, height);
     if (!userMoved && !flight.on && !satView) cam = place ? placeCam(place) : homeCam();
     labelsMeasured = false;
+    pinNameW = -1;
+    satDir = [NaN, NaN];
     loop.markDirty();
   }
   const ro = new ResizeObserver(resize);
@@ -577,6 +697,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     flyToPlace(p) {
       place = p ? { lat: p.lat, lon: p.lon } : null;
       if (p) vec(p.lat, p.lon, 1.003, pinWorld);
+      pinName.textContent = p?.label ?? '';
+      pinNameW = -1;
       userMoved = false;
       if (satView) {
         loop.markDirty();

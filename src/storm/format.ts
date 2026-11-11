@@ -8,5 +8,5 @@ export function vnTime(x: Date | string | number): string {
   return `${pad(v.getUTCHours())}:${pad(v.getUTCMinutes())}, ${pad(v.getUTCDate())}/${pad(v.getUTCMonth() + 1)}`;
 }
 
-/** Whole kilometres, no thousands separator. */
-export const km = (d: number): string => String(Math.round(d));
+/** Whole kilometres, Vietnamese thousands separator: 1.087. */
+export const km = (d: number): string => String(Math.round(d)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');

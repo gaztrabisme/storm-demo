@@ -40,6 +40,9 @@ export function stormSummary(): HTMLElement {
   return h('p', { test: 'storm-summary', class: 'summary', text: t('summary.text', { name: TRACK.name, n: windLevel(s?.windKt ?? null) ?? '' }) });
 }
 
+/** Sort key for the province list: "TP. Hồ Chí Minh" is filed under H, by its name, not its title. */
+const sortName = (name: string): string => name.replace(/^TP\.\s*/, '');
+
 export function checkBlock(store: Store, actions: Actions): HTMLElement {
   const btn = h('button', { test: 'btn-check', class: 'btn btn--primary btn--big', type: 'button', text: t('check.button'), onclick: () => actions.runCheck() });
   const status = h('p', { class: 'status', role: 'status', 'aria-live': 'polite' });
@@ -48,7 +51,7 @@ export function checkBlock(store: Store, actions: Actions): HTMLElement {
     'select',
     { id: selectId, onchange: () => select.value && actions.pickProvince(select.value) },
     h('option', { value: '', text: t('picker.placeholder') }),
-    ...[...PROVINCES].sort((a, b) => a.name.localeCompare(b.name, 'vi')).map((p) => h('option', { value: p.id, text: p.name })),
+    ...[...PROVINCES].sort((a, b) => sortName(a.name).localeCompare(sortName(b.name), 'vi')).map((p) => h('option', { value: p.id, text: p.name })),
   );
   const line = h('label', { for: selectId, class: 'picker__line' });
   const picker = h('div', { test: 'province-picker', class: 'picker', hidden: true }, line, select);
@@ -77,7 +80,15 @@ function actionsList(): HTMLOListElement {
 }
 
 export function verdictCard(store: Store, actions: Actions): HTMLElement {
-  const el = h('section', { test: 'verdict', class: 'verdict', hidden: true, 'aria-live': 'polite' });
+  const el = h('section', { test: 'verdict', class: 'verdict', hidden: true });
+  // Announces only the answer (heading and time). Always rendered, so the first verdict is read out too.
+  const live = h('p', { class: 'sr-only', role: 'status' });
+  let liveTimer = 0;
+  const announce = (s: string) => {
+    live.textContent = '';
+    window.clearTimeout(liveTimer);
+    liveTimer = window.setTimeout(() => (live.textContent = s), 100);
+  };
   const render = (v: Verdict, label: string) => {
     el.dataset.affected = String(v.affected);
     const body: Node[] = [];
@@ -104,6 +115,7 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
     );
     el.replaceChildren(...body);
     el.hidden = false;
+    announce(`${body[0].textContent ?? ''}. ${body[1].textContent ?? ''}`);
   };
   store.subscribe((s, prev) => {
     if (s.verdict === prev.verdict) return;
@@ -112,7 +124,7 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
       el.scrollIntoView({ block: 'nearest' });
     } else el.hidden = true;
   });
-  return el;
+  return h('div', { class: 'verdict-host' }, live, el);
 }
 
 export function timelineList(actions: Actions): HTMLElement {

@@ -11,7 +11,15 @@ import { vnTime } from '../storm/format';
 import { h, nextId } from '../ui/dom';
 import { CHIP_IDS, cardAnswer, prepareAnswer, sourceAnswer, whenAnswer, whereAnswer, type Answer, type ChipId } from './answers';
 
-export function assistant(store: Store, actions: Actions): HTMLElement {
+export interface AssistantParts {
+  /** Avatar and question sheet, fixed to the viewport. */
+  root: HTMLElement;
+  /** The warning pop-up; main.ts docks it on the globe, so it never covers the panel. */
+  warning: HTMLElement;
+  sheet: HTMLElement;
+}
+
+export function assistant(store: Store, actions: Actions): AssistantParts {
   const sheetId = nextId('assistant-sheet');
   const titleId = nextId('assistant-title');
 
@@ -40,7 +48,10 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
     h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeWarning() }),
   );
   const closeWarning = () => {
+    if (warning.hidden) return;
+    const hadFocus = warning.contains(document.activeElement);
     warning.hidden = true;
+    if (hadFocus) avatar.focus({ preventScroll: true });
   };
 
   // ---- Question sheet.
@@ -57,15 +68,24 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
       'div',
       { class: 'assistant-sheet__head' },
       h('img', { class: 'assistant-sheet__pose', src: poseUrl, alt: t('assistant.poseAlt'), width: 596, height: 560, decoding: 'async' }),
-      h('h2', { class: 'assistant-sheet__title', id: titleId, text: t('assistant.sheetTitle') }),
+      // The title also brings the questions back into view (on a phone they fold away under an answer).
+      h('h2', { class: 'assistant-sheet__title', id: titleId }, h('button', { class: 'assistant-sheet__title-btn', type: 'button', text: t('assistant.sheetTitle'), onclick: () => showChips(true) })),
       h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeSheet(true) }),
     ),
-    chips,
-    answer,
+    h('div', { class: 'assistant-sheet__body' }, chips, answer),
   );
+  const body = sheet.lastElementChild as HTMLElement;
+
+  /** Unfold the question list and scroll to it. */
+  function showChips(focus: boolean): void {
+    sheet.classList.remove('is-answered');
+    body.scrollTop = 0;
+    if (focus) chips.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+  }
 
   function openSheet(): void {
     closeWarning();
+    showChips(false);
     sheet.hidden = false;
     avatar.setAttribute('aria-expanded', 'true');
     logEvent('assistant_open');
@@ -82,6 +102,7 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
     if (!a) {
       answer.replaceChildren();
       answer.hidden = true;
+      sheet.classList.remove('is-answered');
       return;
     }
     const parts: Node[] = [h('p', { class: 'assistant-answer__line', text: a.line })];
@@ -89,19 +110,30 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
     if (a.source) parts.push(h('p', { class: 'source', text: a.source }));
     answer.replaceChildren(...parts);
     answer.hidden = false;
+    sheet.classList.add('is-answered');
+    revealAnswer();
+  }
+  /** Scroll the sheet so the answer starts at its top; the chips stay above it. */
+  function revealAnswer(): void {
+    if (sheet.hidden || answer.hidden) return;
+    body.scrollTop = Math.max(0, answer.offsetTop - 4);
   }
 
-  /** "when" asked before any verdict: answer once the check gives one. */
+  /** "when" asked before any verdict: answer in the sheet once the check gives one. */
   let pendingWhen = false;
+  /** The sheet was closed so the province picker could be used; it opens again with the "when" answer. */
+  let reopenForWhen = false;
 
   function onChip(id: ChipId): void {
     logEvent('chip', { id });
     pendingWhen = false;
+    reopenForWhen = false;
     const s = store.state;
     switch (id) {
       case 'affected':
         show(null);
-        closeSheet();
+        closeSheet(true);
+        actions.closeSatellite();
         actions.runCheck();
         break;
       case 'when':
@@ -109,7 +141,7 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
         else {
           show(null);
           pendingWhen = true;
-          closeSheet();
+          actions.closeSatellite();
           actions.runCheck();
         }
         break;
@@ -123,21 +155,34 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
         show(cardAnswer('radius'));
         break;
       case 'where':
+        actions.closeSatellite();
         show(whereAnswer(s.timeMs));
         actions.flyToStorm();
         break;
       case 'source':
         show(sourceAnswer());
-        closeSheet();
+        closeSheet(true);
         actions.openSatellite();
         break;
     }
   }
 
   store.subscribe((s, prev) => {
+    // The warning is about one place: a new check, the province picker or a new place closes it.
+    if ((s.locating && !prev.locating) || (s.picker !== 'hidden' && prev.picker === 'hidden') || s.place !== prev.place) closeWarning();
+    if (pendingWhen && s.picker !== 'hidden' && prev.picker === 'hidden' && !sheet.hidden) {
+      // Location failed: the sheet would cover the picker on a phone.
+      reopenForWhen = true;
+      closeSheet();
+    }
     if (s.verdict === prev.verdict || !s.verdict || !s.place) return;
     if (pendingWhen) {
       pendingWhen = false;
+      if (reopenForWhen) {
+        reopenForWhen = false;
+        sheet.hidden = false;
+        avatar.setAttribute('aria-expanded', 'true');
+      }
       show(whenAnswer(s.verdict, s.place));
     }
     if (s.verdict.affected && !warned && s.verdict.firstInside !== null) {
@@ -162,5 +207,5 @@ export function assistant(store: Store, actions: Actions): HTMLElement {
     true,
   );
 
-  return h('div', { test: 'assistant', class: 'assistant' }, avatar, warning, sheet);
+  return { root: h('div', { test: 'assistant', class: 'assistant' }, avatar, sheet), warning, sheet };
 }

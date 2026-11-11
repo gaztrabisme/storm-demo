@@ -26,25 +26,30 @@ export const session = newSession();
 const opened = performance.now();
 /** Events of every session; mirrors storage, and is the only copy when storage is unavailable. */
 let memory: LogEvent[] = readJson(LOG_KEY, isEvents, []);
+/** Set once a write fails (storage full or blocked): from then on the stored copy is stale and memory is the log. */
+let storageBroken = false;
 
 export const msSinceOpen = (): number => Math.max(1, Math.round(performance.now() - opened));
 
 export function logEvent(type: string, data: Record<string, unknown> | null = null): void {
   const e: LogEvent = { session, t: msSinceOpen(), type, data };
-  // Re-read so that events written by another open tab are kept.
-  const stored = readJson<LogEvent[] | null>(LOG_KEY, (v): v is LogEvent[] | null => isEvents(v), null);
-  memory = [...(stored ?? memory), e];
-  writeJson(LOG_KEY, memory);
+  // Re-read so that events written by another open tab are kept, unless storage has stopped taking writes.
+  const stored = storageBroken ? null : readJson<LogEvent[] | null>(LOG_KEY, (v): v is LogEvent[] | null => isEvents(v), null);
+  memory = [...(stored && stored.length >= memory.length ? stored : memory), e];
+  if (!writeJson(LOG_KEY, memory)) storageBroken = true;
 }
 
 export function events(): LogEvent[] {
-  const stored = readJson<LogEvent[] | null>(LOG_KEY, (v): v is LogEvent[] | null => isEvents(v), null);
-  if (stored) memory = stored;
+  if (!storageBroken) {
+    const stored = readJson<LogEvent[] | null>(LOG_KEY, (v): v is LogEvent[] | null => isEvents(v), null);
+    if (stored && stored.length >= memory.length) memory = stored;
+  }
   return memory.slice();
 }
 
 export function clearLog(): void {
   memory = [];
+  storageBroken = false;
   removeKey(LOG_KEY);
 }
 

@@ -27,13 +27,15 @@ const btnSettings = h('button', { test: 'btn-settings', class: 'btn btn--bar', t
 const topbar = h('header', { class: 'topbar' }, h('h1', { test: 'title', class: 'topbar__title', text: t('app.title') }), h('div', { class: 'topbar__actions' }, btnSource, btnSettings));
 
 const loading = h('p', { class: 'globe__loading', text: t('app.loading') });
-const globeEl = h(
-  'section',
-  { test: 'globe', class: 'globe', 'aria-label': t('app.globe') },
-  loading,
-  h('p', { test: 'demo-label', class: 'globe__demo', text: t('demo.label', { now: vnTime(NOW_MS) }) }),
-  h('p', { test: 'cone-legend', class: 'globe__legend' }, h('span', { class: 'globe__legend-ring', 'aria-hidden': 'true' }), t('cone.legend')),
-);
+const demoLabel = h('p', { test: 'demo-label', class: 'globe__demo', text: t('demo.label', { now: vnTime(NOW_MS) }) });
+// What the red area and the two track lines mean (the circles have their own legend below).
+const keyItem = (swatch: string, label: string) => h('span', { class: 'globe__key-item' }, h('span', { class: `globe__swatch globe__swatch--${swatch}`, 'aria-hidden': 'true' }), label);
+const mapKey = h('p', { class: 'globe__key' }, keyItem('wind', t('map.wind')), keyItem('past', t('map.past')), keyItem('forecast', t('map.forecast')));
+const coneLegend = h('p', { test: 'cone-legend', class: 'globe__legend' }, h('span', { class: 'globe__legend-ring', 'aria-hidden': 'true' }), t('cone.legend'));
+const usui = assistant(store, actions);
+// Bottom of the globe: the warning pop-up (when shown), then the map key and the circle legend.
+const globeBottom = h('div', { class: 'globe__bottom' }, usui.warning, mapKey, coneLegend);
+const globeEl = h('section', { test: 'globe', class: 'globe', 'aria-label': t('app.globe') }, loading, demoLabel, globeBottom);
 
 const panelMain = h(
   'div',
@@ -46,7 +48,7 @@ const panelMain = h(
   learnBlock(store),
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
-document.getElementById('app')?.replaceChildren(topbar, globeEl, panel, assistant(store, actions), settings.el);
+document.getElementById('app')?.replaceChildren(topbar, globeEl, panel, usui.root, settings.el);
 
 // Esc leaves the satellite view (dialogs handle their own Esc).
 document.addEventListener('keydown', (e) => {
@@ -78,7 +80,8 @@ loadGlobe({
   cone: CONE,
   provinces: PROVINCES,
   reducedMotion,
-  labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite') },
+  labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), satName: t('marker.satName') },
+  covers: () => [demoLabel, mapKey, coneLegend, usui.warning, usui.sheet],
 })
   .then((g) => {
     actions.attachGlobe(g);

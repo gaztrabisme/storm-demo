@@ -185,7 +185,8 @@
   "marker": {
     "storm": "Tâm bão",
     "pin": "Nơi bạn chọn",
-    "satellite": "Vệ tinh GK-2A"
+    "satellite": "Vệ tinh GK-2A",
+    "satName": "GK-2A"
   },
   "assistant": {
     "avatar": "Hỏi Usui-chan",
@@ -209,5 +210,10 @@
     "source": "Mình mở phần vệ tinh GK-2A cho bạn xem nhé.",
     "where": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính).",
     "whereNoWind": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông."
+  },
+  "map": {
+    "wind": "Vùng gió từ cấp 8 trở lên",
+    "past": "Đã đi qua",
+    "forecast": "Dự báo"
   }
 }

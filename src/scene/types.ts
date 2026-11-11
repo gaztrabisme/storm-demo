@@ -16,7 +16,13 @@ export interface GlobeInit {
   /** Read at the moment of each camera move: true turns flights into cuts. */
   reducedMotion(): boolean;
   /** Accessible names for the overlays. */
-  labels: { storm: string; pin: string; satellite: string };
+  labels: { storm: string; pin: string; satellite: string; satName: string };
+  /**
+   * Elements drawn over the globe (legends, the warning, the question sheet). Read at each camera move, so the
+   * place, the track and the storm are framed in the part of the globe they leave open; province names behind
+   * them are left out.
+   */
+  covers?: () => Element[];
 }
 
 /**
@@ -32,7 +38,7 @@ export interface GlobeController {
   /** Storm marker and wind area at this time (ms). */
   setTime(ms: number): void;
   /** Pin the place and frame it with the track; null removes the pin. */
-  flyToPlace(place: LatLon | null): void;
+  flyToPlace(place: (LatLon & { label?: string }) | null): void;
   /** Frame the storm at the selected time. */
   flyToStorm(): void;
   /** Fly out to the GK-2A satellite (3-5 s, a cut under reduced motion). */

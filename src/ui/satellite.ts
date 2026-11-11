@@ -15,10 +15,21 @@ export function satelliteInfo(store: Store, actions: Actions): HTMLElement {
     h('ul', { class: 'satinfo__facts' }, ...tList('satellite.facts').map((f) => h('li', { text: f }))),
     h('p', { class: 'source', text: t('satellite.source') }),
   );
+  // Focus goes to btn-back on the way in and back to the control that opened the view on the way out.
+  let opener: HTMLElement | null = null;
+  const shown = (e: HTMLElement | null): e is HTMLElement => !!e && e.isConnected && e.getClientRects().length > 0;
   store.subscribe((s, prev) => {
     if (s.view === prev.view) return;
     el.hidden = s.view !== 'satellite';
-    if (s.view === 'satellite') back.focus({ preventScroll: true });
+    if (s.view === 'satellite') {
+      const a = document.activeElement;
+      opener = a instanceof HTMLElement && a !== document.body ? a : null;
+      back.focus({ preventScroll: true });
+    } else {
+      const to = shown(opener) ? opener : document.querySelector<HTMLElement>('[data-test="btn-source"]');
+      opener = null;
+      if (el.contains(document.activeElement) || document.activeElement === document.body) to?.focus({ preventScroll: true });
+    }
   });
   return el;
 }
