@@ -1,7 +1,7 @@
 // Usui-chan's clip library (SPEC 6.8): nine procedural clips on the model's J_Bip_* bones and Fcl_* face shapes.
 // Each clip is a pure function of time t (seconds since the clip started) and returns a Pose (see pose.ts for axes).
 // Every clip starts from the rest pose at t = 0, so a clip can start at any moment and be cross-faded in.
-import { addBone, addFace, bump, empty, hash01, smooth, turnBetween, wave, type Euler, type Pose } from './pose';
+import { addBone, addFace, bump, empty, eulerOf, hash01, quatBetween, smooth, unturn, wave, type Euler, type Pose } from './pose';
 
 const HEAD = 'J_Bip_C_Head';
 const NECK = 'J_Bip_C_Neck';
@@ -46,7 +46,7 @@ export function hello(t: number): Pose {
   const up = bump(0, 0.6, 2.9, 3.7, t);
   // Upper arm out to the side and a little forward; the forearm bends up from the elbow.
   addBone(p, R_SHOULDER, [0, 0, -0.1], up);
-  addBone(p, R_UPPER, [-0.65, 0, -0.62], up);
+  addBone(p, R_UPPER, [-0.55, 0, -0.2], up);
   // The wave: the forearm and hand swing side to side three times from 0.7 s to 2.8 s.
   const swing = Math.sin(((t - 0.7) / 2.1) * Math.PI * 6) * bump(0.6, 0.9, 2.5, 2.8, t);
   addBone(p, R_LOWER, [-0.2, 0, -2.25 + 0.25 * swing], up);
@@ -110,10 +110,21 @@ function dirOf(d: PointDir | undefined): { x: number; y: number } {
   return d;
 }
 
+const norm3 = (v: [number, number, number]): [number, number, number] => {
+  const n = Math.hypot(...v) || 1;
+  return [v[0] / n, v[1] / n, v[2] / n];
+};
+const DEG = Math.PI / 180;
+/** The right arm's rest directions in model axes (figure3d.ts, ARMS_DOWN), so the aim is measured from where the arm hangs. */
+const REST_R_UPPER = norm3([-0.2, -1, -0.02]);
+const REST_R_LOWER = norm3([-0.1, -1, 0.14]);
+
 /**
  * point: the right arm points toward a screen direction (the parameter: {x, y}, x to the right of the screen, y up).
- * She faces the viewer, so the right of the screen is her left (+x in model axes). The arm reaches its aim by 0.8 s
- * and holds it.
+ * She faces the viewer, so the right of the screen is her left (+x in model axes). The upper arm stays below the
+ * shoulder (about 35 degrees down for a level aim) and the elbow bends so the forearm carries the aim, which keeps the
+ * hand inside her frame. The arm never reaches across her face: toward the right of the screen it points forward and
+ * across her chest, and the aim never lifts more than 45 degrees above level. Reaches its aim by 0.8 s and holds it.
  */
 export function point(t: number, dir?: PointDir): Pose {
   const p = empty();
@@ -121,14 +132,19 @@ export function point(t: number, dir?: PointDir): Pose {
   const len = Math.hypot(d.x, d.y) || 1;
   const sx = d.x / len;
   const sy = d.y / len;
-  // Some reach toward the viewer, more when the arm has to cross her body (pointing to the right of the screen).
-  const fwd = 0.8 + 0.5 * Math.max(0, sx);
-  const v: [number, number, number] = [sx, sy, fwd];
-  const n = Math.hypot(...v);
-  const aim = turnBetween([0, -1, 0], [v[0] / n, v[1] / n, v[2] / n]);
+  // The aim's height above level, capped.
+  // Toward the right of the screen the forearm runs across her chest, so it stays level or below, under her face.
+  const elev = Math.max(-50 * DEG, Math.min(sx > -0.3 ? 10 * DEG : 45 * DEG, Math.atan2(sy, Math.abs(sx) + 1e-6)));
+  // Sideways: out to her right for the left of the screen; little across her body for the right of the screen.
+  const side = sx < 0 ? 0.6 * sx : 0.25 * sx;
+  const upperElev = (sx < 0 ? -50 : -40) * DEG + 0.45 * elev;
+  const upper = norm3([side * Math.cos(upperElev), Math.sin(upperElev), 0.75 + 0.35 * Math.max(0, sx)]);
+  // Toward the left of the screen the forearm also reaches toward the viewer, so the hand stays inside her frame.
+  const fore = norm3([(sx < 0 ? 0.6 * sx : 0.55 * sx) * Math.cos(elev), Math.sin(elev) + (sx < 0 ? -0.05 : 0.12), sx < 0 ? 0.95 : 0.55 + 0.25 * sx]);
+  const qu = quatBetween(REST_R_UPPER, upper);
   const k = smooth(0, 0.8, t);
-  addBone(p, R_UPPER, aim, k);
-  addBone(p, R_LOWER, [-0.12, 0, 0], k);
+  addBone(p, R_UPPER, eulerOf(qu), k);
+  addBone(p, R_LOWER, eulerOf(quatBetween(REST_R_LOWER, norm3(unturn(qu, fore)))), k);
   addBone(p, R_HAND, [0, 0, 0], k);
   // She turns her head toward where she points (the body stays still so the aim holds).
   addBone(p, HEAD, [-0.08 * sy, 0.18 * sx, 0], k);
@@ -145,21 +161,25 @@ export function nod(t: number): Pose {
   return p;
 }
 
-/** relief: joyful eyes and a smile, a small bounce of the shoulders and head. */
+/**
+ * relief: joyful eyes and a smile, a small bounce of the shoulders and head, the right hand laid on her chest and the
+ * head tilted. (The club model has no face shapes, so the body carries the look; a model with them gets the face too.)
+ */
 export function relief(t: number): Pose {
   const p = empty();
   const k = smooth(0, 0.4, t);
   // Two small bounces in the first 1.4 s.
   const bounce = Math.abs(Math.sin(Math.PI * smooth(0.1, 1.4, t) * 2)) * (1 - smooth(1.2, 1.6, t));
-  addBone(p, SPINE, [-0.04 * bounce, 0, 0], 1);
+  addBone(p, SPINE, [-0.05 * bounce - 0.03 * k, 0, 0], 1);
   addBone(p, R_SHOULDER, [0, 0, 0.08 * bounce], 1);
   addBone(p, L_SHOULDER, [0, 0, -0.08 * bounce], 1);
-  addBone(p, HEAD, [-0.06 * bounce, 0, 0.1 * k], 1);
-  // Hands brought together a little in front of her.
-  addBone(p, R_UPPER, [-0.15, 0, 0.12], k);
-  addBone(p, L_UPPER, [-0.15, 0, -0.12], k);
-  addBone(p, R_LOWER, [-0.6, 0, 0.2], k);
-  addBone(p, L_LOWER, [-0.6, 0, -0.2], k);
+  addBone(p, HEAD, [-0.06 * bounce - 0.05 * k, 0.08 * k, -0.2 * k], 1);
+  addBone(p, NECK, [0, 0, -0.05], k);
+  // Right hand on the chest; the left arm a little out from her side.
+  addBone(p, R_UPPER, [-0.45, 0, 0.3], k);
+  addBone(p, R_LOWER, [-1.45, 0.2, 0.5], k);
+  addBone(p, L_UPPER, [-0.1, 0, 0.12], k);
+  addBone(p, L_LOWER, [-0.3, 0, 0], k);
   addFace(p, 'Fcl_ALL_Joy', 0.8 * k);
   return p;
 }
@@ -189,10 +209,10 @@ export function think(t: number): Pose {
 export function lookUp(t: number): Pose {
   const p = empty();
   const k = smooth(0, 0.8, t);
-  const e: Euler = [-0.22, -0.3, 0.05];
+  const e: Euler = [-0.38, -0.2, 0.06];
   addBone(p, HEAD, [e[0] + 0.015 * wave(t, 3.1), e[1], e[2]], k);
-  addBone(p, NECK, [-0.06, -0.08, 0], k);
-  addBone(p, UPPER_CHEST, [-0.04, -0.04, 0], k);
+  addBone(p, NECK, [-0.16, -0.06, 0], k);
+  addBone(p, UPPER_CHEST, [-0.06, -0.03, 0], k);
   addFace(p, 'Fcl_EYE_Surprised', 0.2 * k);
   return p;
 }

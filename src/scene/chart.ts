@@ -100,7 +100,9 @@ export function createChart(deps: ChartDeps) {
     const path = el('path', 'chart__cone-line', gCone);
     const lab = el('text', 'chart__cone-label', gCone);
     lab.textContent = t('map.hours', { h: c.hours });
-    return { c, path, lab, ring: circleRing(c.lat, c.lon, c.radiusKm), edge: destination(c.lat, c.lon, 180, c.radiusKm) };
+    // Places on the circle's edge its label may sit at: south first, then west, north, south-west, north-west, east.
+    const edges = [180, 270, 0, 225, 315, 90].map((b) => ({ b, ll: destination(c.lat, c.lon, b, c.radiusKm) }));
+    return { c, path, lab, ring: circleRing(c.lat, c.lon, c.radiusKm), edges };
   });
 
 
@@ -189,6 +191,8 @@ export function createChart(deps: ChartDeps) {
   const STORM_DISTS = [70, 100, 140, 190];
   /** The place's note stays close: its leader is at most about 120 px (DESIGN 2, notes in open sea). */
   const PLACE_DISTS = [45, 65, 85, 105, 120];
+  /** On a phone the map is small: the note keeps within about 70 px, so it reads as the place's and not a place further south. */
+  const PLACE_DISTS_NARROW = [28, 40, 55, 70];
 
   /** Number of the polylines' segments (x0, y0, x1, y1) that the segment a-b crosses. */
   function crossings(ax: number, ay: number, bx: number, by: number, segs: number[][]): number {
@@ -419,7 +423,8 @@ export function createChart(deps: ChartDeps) {
         if (Number.isNaN(x0) || Number.isNaN(x1)) continue;
         if (x0 * x1 <= 0 && x0 !== x1) {
           const y = y0 + ((0 - x0) / (x1 - x0)) * (y1 - y0);
-          if (y > 0 && y < f.height) lab(`${Math.abs(lat)}°`, 6, y + 4, 'start');
+          // Northern latitudes only: the chart is north of the equator, and a bare "5°" would be read twice.
+          if (lat >= 0 && y > 0 && y < f.height) lab(`${lat}°`, 6, y + 4, 'start');
           break;
         }
       }
@@ -441,13 +446,46 @@ export function createChart(deps: ChartDeps) {
         const [x1, y1] = ringPts[k];
         if (!Number.isNaN(x0) && !Number.isNaN(x1)) lines.push([x0, y0, x1, y1]);
       }
-      if (deps.surface(c.edge.lat, c.edge.lon, pt)) {
+      // The label goes outside the circle at the first edge place where it overlaps no other label: on a phone the
+      // circles sit close together and their south edges share one strip.
+      const w = c.lab.textContent!.length * charW();
+      const lh = lineH();
+      let placed = false;
+      for (const e of c.edges) {
+        if (!deps.surface(e.ll.lat, e.ll.lon, pt)) continue;
+        const [x, y] = pt;
+        let box: number[];
+        let tx = x;
+        let ty = y;
+        let anchor: 'middle' | 'end' | 'start' = 'middle';
+        if (e.b === 180) {
+          box = [x - w / 2, y, x + w / 2, y + lh + 3];
+          ty = y + lh + 1;
+        } else if (e.b === 0) {
+          box = [x - w / 2, y - lh - 3, x + w / 2, y];
+          ty = y - 3;
+        } else if (e.b === 90) {
+          box = [x + 2, y - lh / 2 - 2, x + w + 4, y + lh / 2 + 2];
+          tx = x + 3;
+          ty = y + lh * 0.35;
+          anchor = 'start';
+        } else {
+          box = [x - w - 4, y - lh / 2 - 2, x - 2, y + lh / 2 + 2];
+          tx = x - 3;
+          ty = y + lh * 0.35;
+          anchor = 'end';
+        }
+        if (box[0] < 2 || box[2] > f.width - 2 || box[1] < 2 || box[3] > f.height - 2) continue;
+        if (taken.some((b) => overlaps(b, box))) continue;
         c.lab.style.display = '';
-        c.lab.setAttribute('x', String(f1(pt[0])));
-        c.lab.setAttribute('y', String(f1(pt[1] + lineH() + 1)));
-        const w = c.lab.textContent!.length * charW();
-        taken.push([pt[0] - w / 2, pt[1], pt[0] + w / 2, pt[1] + lineH() + 3]);
-      } else c.lab.style.display = 'none';
+        c.lab.setAttribute('x', String(f1(tx)));
+        c.lab.setAttribute('y', String(f1(ty)));
+        c.lab.setAttribute('text-anchor', anchor);
+        taken.push(box);
+        placed = true;
+        break;
+      }
+      if (!placed) c.lab.style.display = 'none';
     }
 
     // Wind area of level 8 or more at the selected time, from the four quadrant radii.
@@ -537,7 +575,7 @@ export function createChart(deps: ChartDeps) {
       setNote(placeNote, pl.label ?? '', detail);
       const stormBox: number[][] = [];
       if (s && deps.surface(s.lat, s.lon, pt)) stormBox.push([pt[0] - 16, pt[1] - 16, pt[0] + 16, pt[1] + 16]);
-      placeNoted = fitNote(placeNote, pt2[0], pt2[1], f, [...taken, ...stormBox, ...(windBox ? [windBox] : [])], glyphPts, PLACE_DISTS, lines);
+      placeNoted = fitNote(placeNote, pt2[0], pt2[1], f, [...taken, ...stormBox, ...(windBox ? [windBox] : [])], glyphPts, f.width < 600 ? PLACE_DISTS_NARROW : PLACE_DISTS, lines);
       if (placeNoted) taken.push(placeNote.box!);
     } else placeNote.g.style.display = 'none';
     if (showNotes && s && deps.surface(s.lat, s.lon, pt) && pt[0] >= 0 && pt[0] <= f.width && pt[1] >= 0 && pt[1] <= f.height) {

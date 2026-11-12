@@ -64,9 +64,10 @@ export function blend(layers: ReadonlyArray<{ pose: Pose; weight: number }>): Po
   return out;
 }
 
-/** Euler XYZ (radians) of the shortest turn that takes unit vector u onto unit vector v. */
-export function turnBetween(u: readonly [number, number, number], v: readonly [number, number, number]): Euler {
-  // Quaternion from two unit vectors.
+export type Quat = [number, number, number, number];
+
+/** Quaternion [x, y, z, w] of the shortest turn that takes unit vector u onto unit vector v. */
+export function quatBetween(u: readonly [number, number, number], v: readonly [number, number, number]): Quat {
   let x = u[1] * v[2] - u[2] * v[1];
   let y = u[2] * v[0] - u[0] * v[2];
   let z = u[0] * v[1] - u[1] * v[0];
@@ -76,11 +77,25 @@ export function turnBetween(u: readonly [number, number, number], v: readonly [n
     [x, y, z, w] = Math.abs(u[0]) > Math.abs(u[2]) ? [-u[1], u[0], 0, 0] : [0, -u[2], u[1], 0];
   }
   const n = Math.hypot(x, y, z, w);
-  x /= n;
-  y /= n;
-  z /= n;
-  w /= n;
-  // Rotation matrix entries used by the XYZ Euler decomposition (as three.js Euler.setFromRotationMatrix).
+  return [x / n, y / n, z / n, w / n];
+}
+
+/** The vector v turned by the inverse of the unit quaternion q. */
+export function unturn(q: Quat, v: readonly [number, number, number]): [number, number, number] {
+  const [qx, qy, qz, qw] = [-q[0], -q[1], -q[2], q[3]];
+  // v' = v + 2w(q × v) + 2 q × (q × v)
+  const cx = qy * v[2] - qz * v[1];
+  const cy = qz * v[0] - qx * v[2];
+  const cz = qx * v[1] - qy * v[0];
+  return [
+    v[0] + 2 * (qw * cx + qy * cz - qz * cy),
+    v[1] + 2 * (qw * cy + qz * cx - qx * cz),
+    v[2] + 2 * (qw * cz + qx * cy - qy * cx),
+  ];
+}
+
+/** Euler XYZ (radians) of a unit quaternion, as three.js Euler.setFromRotationMatrix. */
+export function eulerOf([x, y, z, w]: Quat): Euler {
   const m11 = 1 - 2 * (y * y + z * z);
   const m12 = 2 * (x * y - z * w);
   const m13 = 2 * (x * z + y * w);
@@ -91,4 +106,9 @@ export function turnBetween(u: readonly [number, number, number], v: readonly [n
   const ey = Math.asin(Math.max(-1, Math.min(1, m13)));
   if (Math.abs(m13) < 0.9999999) return [Math.atan2(-m23, m33), ey, Math.atan2(-m12, m11)];
   return [Math.atan2(m32, m22), ey, 0];
+}
+
+/** Euler XYZ (radians) of the shortest turn that takes unit vector u onto unit vector v. */
+export function turnBetween(u: readonly [number, number, number], v: readonly [number, number, number]): Euler {
+  return eulerOf(quatBetween(u, v));
 }

@@ -83,20 +83,38 @@
   transform: rotate(45deg);
 }
 
-.assistant-warning__text {
+.assistant-warning__body {
   flex: 1;
   min-width: 0;
   align-self: center;
+}
+
+.assistant-warning__body .assistant-x {
+  float: right;
+  margin: -4px 0 0 4px;
+}
+
+.assistant-warning__text {
   font-weight: 600;
   line-height: 1.35;
 }
 
-/* Desktop: the bubble sits on the map, in its lower right corner above the key inset (main.ts moves it into
-   .globe__bottom), so it never covers the panel. It is too far from the portrait for a tail. */
+/* Phone: a narrower figure leaves the text a wider column. */
+@media (max-width: 899px) {
+  .assistant-warning .assistant-figure--warning {
+    width: 84px;
+  }
+}
+
+/* Desktop: the bubble sits on the map in its lower left corner, over the open sea south of the track (main.ts moves
+   it into the globe), so it covers neither the track nor the panel. It is too far from the portrait for a tail. */
 .globe .assistant-warning {
-  position: static;
-  width: min(330px, 100%);
-  margin-bottom: 12px;
+  position: absolute;
+  right: auto;
+  bottom: 40px;
+  left: 56px;
+  z-index: 6;
+  width: min(360px, calc(100% - 80px));
 }
 
 .globe .assistant-warning::after {
@@ -255,9 +273,26 @@
   height: 100%;
 }
 
+/* The fallback picture is the full-body club pose: it is cropped to her head-to-waist, the figure's own framing,
+   by placing her chest (49.5 %, 24 % of the picture) at the figure's centre at 2.95 times the figure's height. */
+.assistant-figure {
+  overflow: hidden;
+}
+
 .assistant-figure__img {
-  object-fit: contain;
-  object-position: center bottom;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: auto;
+  max-width: none;
+  height: 295%;
+  transform: translate(-49.5%, -24%);
+}
+
+/* The sheet and onboarding figures wave and point: a wider canvas leaves room for the hand at the same height. */
+.assistant-figure--sheet,
+.assistant-figure--onboarding {
+  width: 132px;
 }
 
 @media (min-width: 900px) {
@@ -265,6 +300,16 @@
     width: 136px;
     height: 160px;
   }
+
+  .assistant-figure--sheet,
+  .assistant-figure--onboarding {
+    width: 176px;
+  }
+}
+
+/* In onboarding the figure ends in open space: a hairline makes its lower edge read as the frame's edge. */
+.assistant-figure--onboarding {
+  border-bottom: 1px solid var(--ink);
 }
 
 .assistant-warning .assistant-figure {

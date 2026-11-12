@@ -11,20 +11,42 @@ export const SAT_SIZE = 0.0021;
 /** The parts the HUD labels point at (SPEC 10.6). */
 export type PartKey = 'ami' | 'ksem' | 'wing' | 'dish';
 
+/** An axis-aligned box in the group's frame. */
+export interface SatBox {
+  min: THREE.Vector3;
+  max: THREE.Vector3;
+}
+
 export interface SatPart {
   key: PartKey;
   /** Anchor point on the part, in the group's frame. */
   anchor: THREE.Vector3;
-  /** Outward normal of the face the anchor sits on, in the group's frame; null for a part seen from both sides. */
-  normal: THREE.Vector3 | null;
+  /**
+   * Outward normals of the faces the anchor sits on, in the group's frame. The leader shows while the camera sees
+   * one of them at more than about 10 degrees from edge-on. Empty for a part seen from every side (the wing).
+   */
+  normals: THREE.Vector3[];
+  /** True for a part seen from both sides of its face (the dish): only edge-on hides it, not which way it faces. */
+  twoSided: boolean;
+  /** Indices into Satellite.solids the anchor's own part is made of, which do not count as covering it. */
+  own: number[];
+  /** The part's extent, for keeping the other parts' leaders off it on screen. */
+  extent: SatBox;
 }
 
 export interface Satellite {
   group: THREE.Group;
   parts: SatPart[];
+  /** The solid boxes (body, AMI, KSEM, solar panels) that can hide an anchor from the camera. */
+  solids: SatBox[];
   /** Every edge vertex of the drawing, in the group's frame (x, y, z, ...): the model's extent on screen. */
   points: Float32Array;
 }
+
+const box = (x: number, y: number, z: number, w: number, h: number, d: number): SatBox => ({
+  min: new THREE.Vector3(x - w / 2, y - h / 2, z - d / 2),
+  max: new THREE.Vector3(x + w / 2, y + h / 2, z + d / 2),
+});
 
 export function buildSatellite(): Satellite {
   const s = SAT_SIZE;
@@ -42,7 +64,8 @@ export function buildSatellite(): Satellite {
   add(new THREE.BoxGeometry(s, s * 1.2, s), 0, 0, 0);
 
   // AMI imager: the largest box on the Earth-facing side, with its aperture as a ring on the face.
-  const AMI = { x: s * 0.12, y: s * 0.12, w: s * 0.55, h: s * 0.6, d: s * 0.42 };
+  // Its +x side sits near the body's side, so the camera behind and to the right of the model sees that side.
+  const AMI = { x: s * 0.2, y: s * 0.12, w: s * 0.55, h: s * 0.6, d: s * 0.42 };
   add(new THREE.BoxGeometry(AMI.w, AMI.h, AMI.d), AMI.x, AMI.y, s * 0.5 + AMI.d / 2);
   const amiFace = s * 0.5 + AMI.d;
 
@@ -100,12 +123,45 @@ export function buildSatellite(): Satellite {
   const cellInk = new THREE.LineBasicMaterial({ color: SCENE.satInk, transparent: true, opacity: 0.55 });
   g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(cellLines), cellInk));
 
-  const parts: SatPart[] = [
-    { key: 'ami', anchor: new THREE.Vector3(AMI.x, AMI.y, amiFace), normal: new THREE.Vector3(0, 0, 1) },
-    { key: 'ksem', anchor: new THREE.Vector3(KSEM.x, KSEM.y, ksemFace), normal: new THREE.Vector3(0, 0, -1) },
-    // Off the wing's centre line, so the anchor moves when the model turns about the north axis.
-    { key: 'wing', anchor: new THREE.Vector3(PW * 0.28, panelY(1) + PH * 0.17, 0), normal: null },
-    { key: 'dish', anchor: new THREE.Vector3(DISH.x, DISH.y, DISH.z - DISH.r * 0.9), normal: new THREE.Vector3(0, 0, 1) },
+  const solids: SatBox[] = [
+    box(0, 0, 0, s, s * 1.2, s),
+    box(AMI.x, AMI.y, s * 0.5 + AMI.d / 2, AMI.w, AMI.h, AMI.d),
+    box(KSEM.x, KSEM.y, -s * 0.5 - KSEM.k / 2, KSEM.k, KSEM.k, KSEM.k),
+    ...[0, 1, 2].map((i) => box(0, panelY(i), 0, PW, PH, s * 0.05)),
   ];
-  return { group: g, parts, points: new Float32Array(pts) };
+  const dishRim = DISH.r * Math.sin(Math.PI / 3);
+  const parts: SatPart[] = [
+    // On the AMI box's edge between its Earth-facing face and its +x side, so it shows whenever either face does.
+    {
+      key: 'ami',
+      anchor: new THREE.Vector3(AMI.x + AMI.w / 2, AMI.y, amiFace),
+      normals: [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)],
+      twoSided: false,
+      own: [1],
+      extent: solids[1],
+    },
+    { key: 'ksem', anchor: new THREE.Vector3(KSEM.x, KSEM.y, ksemFace), normals: [new THREE.Vector3(0, 0, -1)], twoSided: false, own: [2], extent: solids[2] },
+    // Off the wing's centre line, so the anchor moves when the model turns about the north axis.
+    {
+      key: 'wing',
+      anchor: new THREE.Vector3(PW * 0.28, panelY(1) + PH * 0.17, 0),
+      normals: [],
+      twoSided: false,
+      own: [3, 4, 5],
+      extent: { min: solids[3].min.clone(), max: solids[5].max.clone() },
+    },
+    // The centre of the bowl: its back from behind, its inside from the front.
+    {
+      key: 'dish',
+      anchor: new THREE.Vector3(DISH.x, DISH.y, DISH.z - DISH.r),
+      normals: [new THREE.Vector3(0, 0, 1)],
+      twoSided: true,
+      own: [],
+      extent: {
+        min: new THREE.Vector3(DISH.x - dishRim, DISH.y - dishRim, DISH.z - DISH.r),
+        max: new THREE.Vector3(DISH.x + dishRim, DISH.y + dishRim, DISH.z - DISH.r * 0.5),
+      },
+    },
+  ];
+  return { group: g, parts, solids, points: new Float32Array(pts) };
 }

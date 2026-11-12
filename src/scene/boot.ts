@@ -9,7 +9,7 @@ import { CHART_AREA, chartAreaTexture, landMask, patchGeometry, regionGeometry, 
 import { EARTH, SCENE } from './colors';
 import { startFrameLoop } from './frameLoop';
 import { createHud, PART_ORDER, type HudFrame } from './hud';
-import { buildSatellite } from './satellite';
+import { buildSatellite, SAT_SIZE } from './satellite';
 import './scene.css';
 
 const RAD = Math.PI / 180;
@@ -43,10 +43,10 @@ const DRAG_RAD = 0.005;
 const KEY_YAW = 0.1;
 const KEY_PITCH = 0.08;
 /**
- * How dim the Earth is in the satellite view: the texture colour multiplier (linear light) per theme, so the paper
- * chart and the night screen both end as a dim disc on space.
+ * How dim the Earth is in the satellite view: the texture colour multiplier (linear light). Both themes end as the
+ * night screen's dim disc on space (the light theme's paper colours turn into the night ones on the way out).
  */
-const EARTH_DIM = { light: 0.1, dark: 0.8 } as const;
+const EARTH_DIM = { light: 0.8, dark: 0.8 } as const;
 
 /** Unit vector (times r) for (lat, lon). */
 function vec(lat: number, lon: number, r = 1, out = new THREE.Vector3()): THREE.Vector3 {
@@ -110,6 +110,41 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const regionMesh = new THREE.Mesh(regionGeometry(1.0008), regionMat);
   regionMesh.renderOrder = 2;
   scene.add(regionMesh);
+  // The satellite view has a dark ground in both themes (DESIGN 5). In the light theme the paper Earth turns into
+  // the night screen's colours on the way out: the shader maps each texel's brightness from the paper palette
+  // (coast ink, land, sea) onto the night palette, by uNight from 0 (paper) to 1 (night).
+  const lum = (hex: string) => {
+    const c = new THREE.Color(hex);
+    return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  };
+  const nightUniforms = {
+    uNight: { value: 0 },
+    uCoast: { value: lum(EARTH.light.coast) },
+    uLand: { value: lum(EARTH.light.land) },
+    uSea: { value: lum(EARTH.light.sea) },
+    uCoastN: { value: new THREE.Color(EARTH.dark.coast) },
+    uLandN: { value: new THREE.Color(EARTH.dark.land) },
+    uSeaN: { value: new THREE.Color(EARTH.dark.sea) },
+  };
+  const toNight = (sh: THREE.WebGLProgramParametersWithUniforms): void => {
+    Object.assign(sh.uniforms, nightUniforms);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('void main() {', 'uniform float uNight, uCoast, uLand, uSea;\nuniform vec3 uCoastN, uLandN, uSeaN;\nvoid main() {')
+      .replace(
+        '#include <map_fragment>',
+        `#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  float lum = dot( sampledDiffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+  vec3 nightC = lum < uLand
+    ? mix( uCoastN, uLandN, clamp( ( lum - uCoast ) / ( uLand - uCoast ), 0.0, 1.0 ) )
+    : mix( uLandN, uSeaN, clamp( ( lum - uLand ) / ( uSea - uLand ), 0.0, 1.0 ) );
+  sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, nightC, uNight );
+  diffuseColor *= sampledDiffuseColor;
+#endif`,
+      );
+  };
+  // The 10 m coast patches over the region turn with it, so no paper patch shows on the way out.
+  earthMat.onBeforeCompile = areaMat.onBeforeCompile = regionMat.onBeforeCompile = toNight;
   const themeGround = (): Ground => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   let ground: Ground | null = null;
   function applyGround(): void {
@@ -203,23 +238,19 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       satPts[i + 2] = v.z;
     }
   }
-  // The geostationary orbit through the model (DESIGN 5), as screen-sized dots in the scene, so the Earth hides
-  // its far side. The dots are spaced in proportion to their distance from the satellite, so near the model and
-  // far round the Earth they sit a few pixels apart on screen alike.
+  // The geostationary orbit through the model (DESIGN 5), as dots of one screen size at one screen spacing, in the
+  // scene so the Earth hides its far side. The dots are laid out again for each camera pose: each step along the
+  // circle is the angle that moves the dot ORBIT_GAP px on screen there, so the line stays dotted where it runs
+  // toward the camera. Dots less than 0.7 of the model's depth in front of the camera are left out, so the circle
+  // never folds round the camera at the edge of the view.
+  const ORBIT_MAX = 6000;
+  const ORBIT_GAP = 8;
+  const orbitPos = new Float32Array(ORBIT_MAX * 3);
+  const orbitAttr = new THREE.BufferAttribute(orbitPos, 3).setUsage(THREE.DynamicDrawUsage);
   const orbitDots = (() => {
-    const pos: number[] = [];
-    const lon0 = SAT_LON * RAD;
-    const at = (a: number) => pos.push(Math.cos(lon0 + a) * satR, 0, -Math.sin(lon0 + a) * satR);
-    for (const sgn of [1, -1]) {
-      let a = sgn > 0 ? 0 : -0.00004;
-      while (Math.abs(a) < Math.PI) {
-        at(a);
-        const d = 2 * satR * Math.sin(Math.abs(a) / 2);
-        a += (sgn * Math.max(0.0007, 0.008 * d)) / satR;
-      }
-    }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('position', orbitAttr);
+    geo.setDrawRange(0, 0);
     // Round dots: a small disc as the point sprite.
     const dot = document.createElement('canvas');
     dot.width = dot.height = 16;
@@ -237,6 +268,82 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     scene.add(pts);
     return pts;
   })();
+  const ov = new THREE.Vector3();
+  const ot = new THREE.Vector3();
+  let orbitKey = '';
+  function layoutOrbit(): void {
+    camera.updateMatrixWorld();
+    const m = camera.matrixWorldInverse.elements;
+    const key = `${m.join(',')}|${width}|${height}`;
+    if (key === orbitKey) return;
+    orbitKey = key;
+    const f = height / 2 / Math.tan((camera.fov * RAD) / 2);
+    const minDepth = 0.7 * camera.position.distanceTo(satCenter);
+    const lon0 = SAT_LON * RAD;
+    // In the close-up, a branch also ends where its dots on screen have turned back by more than 70 degrees in one
+    // run across the view: past that bend the circle only curls back round the camera.
+    const closeUp = trip === 1;
+    let count = 0;
+    for (const sgn of [1, -1]) {
+      let a = 0;
+      let px = NaN;
+      let py = NaN;
+      let pdx = NaN;
+      let pdy = NaN;
+      let turned = 0;
+      for (let it = 0; it < 20000 && Math.abs(a) < Math.PI && count < ORBIT_MAX; it++) {
+        const c = Math.cos(lon0 + a);
+        const sn = Math.sin(lon0 + a);
+        ov.set(c * satR, 0, -sn * satR);
+        ot.set(-sn, 0, -c);
+        ov.applyMatrix4(camera.matrixWorldInverse);
+        ot.transformDirection(camera.matrixWorldInverse).multiplyScalar(satR);
+        const depth = -ov.z;
+        let step = 0.004;
+        let inView = false;
+        if (depth > camera.near) {
+          // Screen speed (px per radian) of the point along the circle.
+          const dsx = (f * (ot.x * depth + ov.x * ot.z)) / (depth * depth);
+          const dsy = (f * (ot.y * depth + ov.y * ot.z)) / (depth * depth);
+          const speed = Math.hypot(dsx, dsy);
+          // The step is a power-of-two share of 0.02 rad and the dots sit on whole multiples of it, so as the camera
+          // turns they stay at the same places on the circle and slide with it instead of shimmering.
+          const want = Math.min(0.02, Math.max(2e-6, ORBIT_GAP / Math.max(speed, 1e-6)));
+          step = 0.02 / 2 ** Math.ceil(Math.log2(0.02 / want));
+          const sx = (f * ov.x) / depth;
+          const sy = (f * ov.y) / depth;
+          inView = Math.abs(sx) < width / 2 + 10 && Math.abs(sy) < height / 2 + 10;
+          if (inView) {
+            if (closeUp && !Number.isNaN(px)) {
+              const dx = sx - px;
+              const dy = sy - py;
+              if (!Number.isNaN(pdx)) turned += Math.atan2(pdx * dy - pdy * dx, pdx * dx + pdy * dy);
+              pdx = dx;
+              pdy = dy;
+              if (Math.abs(turned) > 1.22) break;
+            }
+            px = sx;
+            py = sy;
+            if (depth >= minDepth) {
+              orbitPos[count * 3] = c * satR;
+              orbitPos[count * 3 + 1] = 0;
+              orbitPos[count * 3 + 2] = -sn * satR;
+              count++;
+            }
+          } else step = Math.min(0.02, step * 4);
+        } else if (closeUp) break;
+        if (!inView) {
+          px = py = pdx = pdy = NaN;
+          turned = 0;
+        }
+        a = sgn > 0 ? (Math.floor(a / step + 1e-9) + 1) * step : (Math.ceil(a / step - 1e-9) - 1) * step;
+      }
+    }
+    orbitAttr.needsUpdate = true;
+    orbitAttr.clearUpdateRanges();
+    orbitAttr.addUpdateRange(0, count * 3);
+    orbitDots.geometry.setDrawRange(0, count);
+  }
   /** The middle of the model's extent: the close-up camera looks at it and turns round it. */
   const satCenter = new THREE.Vector3();
   {
@@ -248,10 +355,63 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     }
     satCenter.set((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
   }
-  const partWorld = PART_ORDER.map((k) => {
-    const p = satModel.parts.find((x) => x.key === k)!;
-    return { anchor: p.anchor.clone().applyMatrix4(sat.matrixWorld), normal: p.normal ? p.normal.clone().applyQuaternion(sat.quaternion) : null };
+  const satParts = PART_ORDER.map((k) => satModel.parts.find((x) => x.key === k)!);
+  const partWorld = satParts.map((p) => {
+    // The eight corners of the part's extent, in world space (for its box on screen).
+    const corners: THREE.Vector3[] = [];
+    for (let i = 0; i < 8; i++) {
+      const e = p.extent;
+      corners.push(new THREE.Vector3(i & 1 ? e.max.x : e.min.x, i & 2 ? e.max.y : e.min.y, i & 4 ? e.max.z : e.min.z).applyMatrix4(sat.matrixWorld));
+    }
+    return { anchor: p.anchor.clone().applyMatrix4(sat.matrixWorld), corners };
   });
+  const satInv = sat.matrixWorld.clone().invert();
+  /** True when the segment from a to b (group frame) passes through the box. */
+  function segHitsBox(a: THREE.Vector3, b: THREE.Vector3, bx: { min: THREE.Vector3; max: THREE.Vector3 }): boolean {
+    let t0 = 0;
+    let t1 = 1;
+    for (const ax of ['x', 'y', 'z'] as const) {
+      const d = b[ax] - a[ax];
+      const lo = bx.min[ax];
+      const hi = bx.max[ax];
+      if (Math.abs(d) < 1e-12) {
+        if (a[ax] < lo || a[ax] > hi) return false;
+        continue;
+      }
+      let u0 = (lo - a[ax]) / d;
+      let u1 = (hi - a[ax]) / d;
+      if (u0 > u1) [u0, u1] = [u1, u0];
+      t0 = Math.max(t0, u0);
+      t1 = Math.min(t1, u1);
+      if (t0 > t1) return false;
+    }
+    return true;
+  }
+  const camLocal = new THREE.Vector3();
+  const rayFrom = new THREE.Vector3();
+  const toCamL = new THREE.Vector3();
+  /**
+   * Whether the camera sees part i's anchor: one of its faces turned more than about 10 degrees from edge-on
+   * toward the camera (either side for the dish), and no solid box of another part between the anchor and the camera.
+   */
+  function partSeen(i: number): boolean {
+    const p = satParts[i];
+    toCamL.copy(camLocal).sub(p.anchor);
+    const len = toCamL.length();
+    if (!(len > 0)) return false;
+    toCamL.divideScalar(len);
+    if (p.normals.length) {
+      let best = -Infinity;
+      for (const n of p.normals) best = Math.max(best, p.twoSided ? Math.abs(n.dot(toCamL)) : n.dot(toCamL));
+      if (best <= 0.17) return false;
+    }
+    rayFrom.copy(p.anchor).addScaledVector(toCamL, 1e-3 * SAT_SIZE);
+    for (let k = 0; k < satModel.solids.length; k++) {
+      if (p.own.includes(k)) continue;
+      if (segHitsBox(rayFrom, camLocal, satModel.solids[k])) return false;
+    }
+    return true;
+  }
 
   // DOM overlays the tests read (tests/README.md, "How the scripts read the page").
   const overlay = (test: string, cls: string, label: string) => {
@@ -500,6 +660,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     regionMat.color.setScalar(k);
     areaMesh.visible = regionMesh.visible = trip < 0.6;
     orbitDots.visible = trip > 0;
+    nightUniforms.uNight.value = ground === 'light' ? smooth(Math.min(1, trip / 0.8)) : 0;
   }
 
   /** True when only the automatic turn moves the picture this frame (no flight, no input). */
@@ -536,6 +697,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     setDim();
     pose(trip);
     setNear();
+    if (orbitDots.visible) layoutOrbit();
     return moving;
   }
 
@@ -619,7 +781,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   }
 
   // The close-up's overlays: [satellite-model] over the model's box on screen, and the HUD.
-  const hudFrame: HudFrame = { width: 1, height: 1, box: new Float32Array(4), anchors: new Float32Array(PART_ORDER.length * 2), facing: new Uint8Array(PART_ORDER.length) };
+  const hudFrame: HudFrame = { width: 1, height: 1, box: new Float32Array(4), anchors: new Float32Array(PART_ORDER.length * 2), facing: new Uint8Array(PART_ORDER.length), parts: new Float32Array(PART_ORDER.length * 4) };
   function updateClose(): void {
     const on = satView && !flight.on && trip === 1;
     hud.show(on);
@@ -643,14 +805,31 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       satEl.style.width = `${w}px`;
       satEl.style.height = `${h}px`;
     }
+    camLocal.copy(camera.position).applyMatrix4(satInv);
     for (let i = 0; i < partWorld.length; i++) {
       const p = partWorld[i];
       proj.copy(p.anchor).project(camera);
       hudFrame.anchors[i * 2] = (proj.x * 0.5 + 0.5) * width;
       hudFrame.anchors[i * 2 + 1] = (-proj.y * 0.5 + 0.5) * height;
-      // A part faces away when the camera sees the back of the face its anchor is on (within about 80°).
-      toCam.copy(camera.position).sub(p.anchor);
-      hudFrame.facing[i] = !p.normal || p.normal.dot(toCam) > 0.17 * toCam.length() ? 1 : 0;
+      hudFrame.facing[i] = partSeen(i) ? 1 : 0;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const c of p.corners) {
+        proj.copy(c).project(camera);
+        const x = (proj.x * 0.5 + 0.5) * width;
+        const y = (-proj.y * 0.5 + 0.5) * height;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+      const pb = hudFrame.parts;
+      pb[i * 4] = x0;
+      pb[i * 4 + 1] = y0;
+      pb[i * 4 + 2] = x1;
+      pb[i * 4 + 3] = y1;
     }
     hudFrame.width = width;
     hudFrame.height = height;
@@ -830,7 +1009,6 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   applyGround();
   // Compile every material now, the satellite model's included, so the first flight out does not stall on it.
   renderer.compile(scene, camera);
-
   /** Works the fixed map view out again for a new layout; while the satellite view is open, only marks it stale. */
   function reframe(): void {
     if (satView) {

@@ -48,8 +48,13 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     'div',
     { test: 'assistant-warning', class: 'assistant-warning', role: 'status', hidden: true },
     warningFigure.el,
-    warningText,
-    h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeWarning() }),
+    // The close button floats at the top right of the text, so the lines under it run the full width.
+    h(
+      'div',
+      { class: 'assistant-warning__body' },
+      h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeWarning() }),
+      warningText,
+    ),
   );
   const closeWarning = () => {
     if (warning.hidden) return;
@@ -64,12 +69,13 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
    */
   const syncFoot = () => {
     const root = document.documentElement;
-    if (warning.hidden) {
+    // On a desktop the bubble sits on the map (main.ts) and the strip keeps its own height.
+    if (warning.hidden || warning.closest('.globe')) {
       root.style.removeProperty('--foot-h');
       root.classList.remove('has-foot');
       return;
     }
-    root.style.setProperty('--foot-h', `${Math.max(88, Math.ceil(warning.offsetHeight) + 24)}px`);
+    root.style.setProperty('--foot-h', `${Math.max(84, Math.ceil(warning.offsetHeight) + 24)}px`);
     root.classList.add('has-foot');
   };
   new ResizeObserver(() => syncFoot()).observe(warning);

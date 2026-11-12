@@ -24,8 +24,10 @@ export interface HudFrame {
   box: Float32Array;
   /** Anchors on screen, x and y per part, in PART_ORDER. */
   anchors: Float32Array;
-  /** 1 when the part faces the viewer (its leader shows), per part. */
+  /** 1 when the camera sees the part's anchor (its leader shows), per part. */
   facing: Uint8Array;
+  /** Each part's box on screen (x0, y0, x1, y1 per part, in PART_ORDER): the other leaders keep off it. */
+  parts: Float32Array;
 }
 
 export const PART_ORDER: readonly PartKey[] = ['ami', 'ksem', 'wing', 'dish'];
@@ -47,8 +49,15 @@ function label(tag: string, cls: string, text: string): HTMLElement {
     const n = document.createElement('span');
     n.className = 'sathud__num';
     n.textContent = m[0];
-    el.append(n);
-    at = i + m[0].length;
+    // The number and its unit (the word after it, or a degree sign) never break apart.
+    const unit = /^(°|\s\S+)/.exec(text.slice(i + m[0].length))?.[0] ?? '';
+    if (unit) {
+      const keep = document.createElement('span');
+      keep.className = 'sathud__keep';
+      keep.append(n, unit);
+      el.append(keep);
+    } else el.append(n);
+    at = i + m[0].length + unit.length;
   }
   if (at < text.length) el.append(text.slice(at));
   return el;
@@ -83,6 +92,11 @@ export function createHud(container: HTMLElement, s: HudStrings, viewLabel: stri
   foot.append(label('p', 'sathud__head', s.header), label('p', 'sathud__orbit', s.orbit));
   hud.append(foot);
 
+  // The AMI callout's two detail lines.
+  const amiSubs = document.createElement('div');
+  amiSubs.className = 'sathud__subs';
+  amiSubs.append(label('p', 'sathud__sub', s.fullDisk), label('p', 'sathud__sub', s.resolution));
+
   // One callout per part: its label first (the leader starts beside it), the AMI callout with two lines under it.
   const text: Record<PartKey, string> = { ami: s.ami, ksem: s.ksem, wing: s.wing, dish: s.dish };
   const n = PART_ORDER.length;
@@ -92,7 +106,7 @@ export function createHud(container: HTMLElement, s: HudStrings, viewLabel: stri
     const b = document.createElement('div');
     b.className = 'sathud__callout';
     b.append(label('p', 'sathud__part', text[key]));
-    if (key === 'ami') b.append(label('p', 'sathud__sub', s.fullDisk), label('p', 'sathud__sub', s.resolution));
+    if (key === 'ami') b.append(amiSubs);
     hud.append(b);
     blocks.push(b);
     const l = document.createElementNS(SVG, 'polyline');
@@ -189,12 +203,14 @@ export function createHud(container: HTMLElement, s: HudStrings, viewLabel: stri
       else if (side[i] === 1 && ax < cx - 10) side[i] = -1;
     }
     const top = 52;
+    // The callouts' distance from the model's box: less on a narrow view, where the columns are short of room.
+    const gapX = w < 560 ? 18 : 28;
     const bottom = h - footH - 24;
     stack(-1, f, top, bottom);
     stack(1, f, top, bottom);
     for (let i = 0; i < n; i++) {
       const left = side[i] === -1;
-      const x = left ? Math.max(16, box[0] - 28 - bw[i]) : Math.min(w - 16 - bw[i], box[2] + 28);
+      const x = left ? Math.max(16, box[0] - gapX - bw[i]) : Math.min(w - 16 - bw[i], box[2] + gapX);
       const xr = r1(x);
       const yr = r1(y[i]);
       const blk = blocks[i];
@@ -218,8 +234,73 @@ export function createHud(container: HTMLElement, s: HudStrings, viewLabel: stri
       const sx = left ? xr + bw[i] + 4 : xr - 4;
       const sy = yr + lh[i] / 2;
       const ex = left ? sx + 12 : sx - 12;
-      lead.setAttribute('points', `${r1(sx)},${r1(sy)} ${r1(ex)},${r1(sy)} ${r1(anchors[i * 2])},${r1(anchors[i * 2 + 1])}`);
+      lead.setAttribute('points', route(f, i, sx, sy, ex, anchors[i * 2], anchors[i * 2 + 1]));
     }
+  }
+
+  /** True when the segment a-b crosses the box (x0, y0, x1, y1), grown by PAD. */
+  const PAD = 4;
+  function crosses(ax: number, ay: number, bx: number, by: number, x0: number, y0: number, x1: number, y1: number): boolean {
+    x0 -= PAD;
+    y0 -= PAD;
+    x1 += PAD;
+    y1 += PAD;
+    let t0 = 0;
+    let t1 = 1;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const clip = (p: number, q: number): boolean => {
+      if (Math.abs(p) < 1e-9) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    return clip(-dx, ax - x0) && clip(dx, x1 - ax) && clip(-dy, ay - y0) && clip(dy, y1 - ay) && t0 < t1;
+  }
+
+  /** The boxes on screen of the shown parts other than part i that do not hold its anchor. */
+  function blocked(f: HudFrame, i: number, ax: number, ay: number, bx: number, by: number): number {
+    for (let k = 0; k < n; k++) {
+      if (k === i || !f.facing[k]) continue;
+      const x0 = f.parts[k * 4];
+      const y0 = f.parts[k * 4 + 1];
+      const x1 = f.parts[k * 4 + 2];
+      const y1 = f.parts[k * 4 + 3];
+      const tx = f.anchors[i * 2];
+      const ty = f.anchors[i * 2 + 1];
+      if (tx > x0 - PAD && tx < x1 + PAD && ty > y0 - PAD && ty < y1 + PAD) continue;
+      if (crosses(ax, ay, bx, by, x0, y0, x1, y1)) return k;
+    }
+    return -1;
+  }
+
+  /**
+   * The leader's points: from the label (s) out to the elbow (e), then to the anchor (a). When the straight run from
+   * the elbow would cross another part on screen, the elbow bends above or below that part instead.
+   */
+  function route(f: HudFrame, i: number, sx: number, sy: number, ex: number, ax: number, ay: number): string {
+    const head = `${r1(sx)},${r1(sy)} ${r1(ex)},${r1(sy)}`;
+    const k = blocked(f, i, ex, sy, ax, ay);
+    if (k >= 0) {
+      const y0 = f.parts[k * 4 + 1] - PAD - 3;
+      const y1 = f.parts[k * 4 + 3] + PAD + 3;
+      const ys = Math.abs(y0 - ay) <= Math.abs(y1 - ay) ? [y0, y1] : [y1, y0];
+      for (const yc of ys) {
+        // A bend straight up or down from the elbow, then on to the anchor.
+        if (blocked(f, i, ex, sy, ex, yc) < 0 && blocked(f, i, ex, yc, ax, ay) < 0) return `${head} ${r1(ex)},${r1(yc)} ${r1(ax)},${r1(ay)}`;
+        // Up or down, across above or below the part, then straight to the anchor.
+        if (blocked(f, i, ex, sy, ex, yc) < 0 && blocked(f, i, ex, yc, ax, yc) < 0 && blocked(f, i, ax, yc, ax, ay) < 0) {
+          return `${head} ${r1(ex)},${r1(yc)} ${r1(ax)},${r1(yc)} ${r1(ax)},${r1(ay)}`;
+        }
+      }
+    }
+    return `${head} ${r1(ax)},${r1(ay)}`;
   }
 
   return {

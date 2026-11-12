@@ -33,7 +33,7 @@
   top: 0;
   white-space: nowrap;
   font-family: var(--serif);
-  font-size: 0.75rem;
+  font-size: min(0.75rem, 14px);
   line-height: 1.2;
   color: var(--muted);
   text-shadow:
