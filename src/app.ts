@@ -53,6 +53,14 @@ export function reducedMotion(): boolean {
   }
 }
 
+/**
+ * The place's name inside a sentence (SPEC 6.3 step 2): the own-location label "Vị trí của bạn" is written in lower
+ * case there; at the start of a sentence and on the map pin it keeps its capital. Province names are unchanged.
+ */
+export function placeInSentence(p: Place): string {
+  return p.label === t('place.yours') ? t('place.yoursInside') : p.label;
+}
+
 export type Actions = ReturnType<typeof createActions>;
 
 export function createStore(): Store {
@@ -94,7 +102,7 @@ export function createActions(store: Store) {
       const s = store.state;
       g.setMode(modeOf(s));
       g.setTime(s.timeMs);
-      if (s.place) g.flyToPlace(s.place);
+      if (s.place) g.setPlace(s.place);
       if (s.view === 'satellite') g.showSatellite();
     },
 
@@ -160,7 +168,7 @@ export function createActions(store: Store) {
       actions.setPlace(p.lat, p.lon, p.name, p.id);
     },
 
-    /** Verdict for a place at now (SPEC 5), the camera flight and the pin (SPEC 6.3 step 4). */
+    /** Verdict for a place at now (SPEC 5) and the pin (SPEC 6.3 step 4); the map view does not move. */
     setPlace(lat: number, lon: number, label: string, id?: string) {
       checkId++;
       const place: Place = { lat, lon, label, ...(id ? { id } : {}) };
@@ -168,7 +176,7 @@ export function createActions(store: Store) {
       // Logged first: the store update below logs the warning the verdict triggers.
       logEvent('verdict_shown', { affected: v.affected, place: label, msSinceOpen: msSinceOpen() });
       store.set({ place, verdict: v, picker: 'hidden', locating: false });
-      globe?.flyToPlace(place);
+      globe?.setPlace(place);
     },
 
     /** Full mode time slider. */
@@ -179,8 +187,9 @@ export function createActions(store: Store) {
       logSlider(ms);
     },
 
-    flyToStorm() {
-      globe?.flyToStorm();
+    /** The `where` chip: highlights the storm marker; no camera move (SPEC 6.4). */
+    highlightStorm() {
+      globe?.highlightStorm();
     },
 
     openSatellite() {

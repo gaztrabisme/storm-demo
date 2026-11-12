@@ -1,4 +1,4 @@
-// First run (SPEC 6.6): three steps, each with "Tiếp" and "Bỏ qua". Finishing or skipping saves the settings.
+// First run (SPEC 6.6): three steps; steps 1 and 2 have "Tiếp" and "Bỏ qua", step 3 only "Bắt đầu". Finishing or skipping saves the settings.
 import type { Actions } from '../app';
 import { t } from '../i18n';
 import { MODES, modeOf, type Mode, type Store } from '../state';
@@ -15,6 +15,8 @@ export function showOnboarding(store: Store, actions: Actions): void {
 
   function go(n: number): void {
     step = n;
+    next.textContent = t(n < 3 ? 'onboarding.next' : 'onboarding.start');
+    skip.hidden = n === 3;
     counter.textContent = t('onboarding.step', { n });
     if (n === 1) {
       const sizes = textSizeGroup(store, actions, 'ob-text');

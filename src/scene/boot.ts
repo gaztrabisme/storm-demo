@@ -17,10 +17,8 @@ const GEO_ALT_KM = 35786;
 const SAT_LAT = 0;
 const SAT_LON = 128.2;
 
-/** Flight durations (ms). SPEC 6.7 sets 3-5 s for the satellite flights. */
-const FLY_PLACE_MS = 1600;
-const FLY_SAT_MS = 4000;
-const FLY_MODE_MS = 900;
+/** Satellite flight duration (ms), out and back. SPEC 6.7 sets 0.8-1.2 s; the map itself never moves (SPEC 6.2). */
+const FLY_SAT_MS = 900;
 
 /**
  * Camera for the satellite view: about 42,700 km from Earth's centre, just behind GK-2A and north-west of it,
@@ -53,7 +51,18 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   let height = 1;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(basePixelRatio);
+  /**
+   * The satellite flights (1 s) draw their fast part at half resolution, so a slow device keeps up with the
+   * frames; the full resolution comes back for the slow end of the flight.
+   */
+  function flightResolution(on: boolean): void {
+    const r = on ? basePixelRatio / 2 : basePixelRatio;
+    if (renderer.getPixelRatio() === r) return;
+    renderer.setPixelRatio(r);
+    renderer.setSize(width, height, false);
+  }
   renderer.setClearColor(0x000000, 0);
   const canvas = renderer.domElement;
   canvas.className = 'globe__canvas';
@@ -233,35 +242,11 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   /** Distance at which a cap of angular radius alpha (deg) fits the view. */
   const fitDist = (alphaDeg: number) => Math.max(1.3, Math.cos(alphaDeg * RAD) + Math.sin(alphaDeg * RAD) / tanHalfMin());
   /**
-   * Easy mode's locked view, and the view after a check: framed on the storm's track and Vietnam (plus the
-   * place, once there is one), so the track fills the map rather than a thin band of it. Desktop keeps the
-   * whole track, from its start east of the Philippines; a phone keeps the two days before now onwards, so
-   * the dots stay apart. On a desktop this leaves the open Pacific north-east of the track for the key.
+   * The fixed map view (SPEC 6.2): the whole track and all of Vietnam, fitted to the current layout from the data.
+   * It is worked out again only when the layout changes (a resize, or the key's height on a desktop); a check, a
+   * mode change or the time slider never move it.
    */
-  const homeCam = (): Cam => trackCam(null);
-
-  /**
-   * Camera that shows a cap of angular radius halfDeg around (lat, lon) in the open band between the covers:
-   * the distance fits the band's height, and the camera moves north or south so the cap's centre lands in
-   * the middle of the band rather than the middle of the canvas.
-   */
-  function framed(lat: number, lon: number, halfDeg: number): Cam {
-    const { top, bottom } = insets();
-    const tanFov = Math.tan((camera.fov / 2) * RAD);
-    const band = Math.max(1, height - top - bottom);
-    const tanHalf = Math.min(tanFov * (band / height), tanFov * camera.aspect);
-    const a = halfDeg * RAD;
-    const dist = Math.max(1.3, Math.cos(a) + Math.sin(a) / tanHalf);
-    // View angle (as a tangent) from the canvas centre down to the band centre; positive when the band sits low.
-    const tv = ((top - bottom) / 2 / (height / 2)) * tanFov;
-    // Surface angle phi seen at that view angle from distance d: tan(beta) = sin(phi) / (d - cos(phi)).
-    const s = Math.max(-1, Math.min(1, (tv * dist) / Math.sqrt(1 + tv * tv)));
-    const phi = (Math.asin(s) - Math.atan(tv)) / RAD;
-    return { lat: Math.max(-85, Math.min(85, lat + phi)), lon, dist };
-  }
-
-  /** The track and Vietnam, with the place when there is one, as a camera (see homeCam). */
-  const placeCam = (p: LatLon): Cam => trackCam(p);
+  const homeCam = (): Cam => trackCam();
 
   const fitCamera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
   const fv = new THREE.Vector3();
@@ -336,30 +321,20 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     { lat: 12.6, lon: 109.5 },
     { lat: 22.5, lon: 102.1 },
   ];
-  /** North and central Vietnam: what a phone frames with the track, leaving out the empty south. */
-  const VIETNAM_NORTH: LatLon[] = [
-    { lat: 23.4, lon: 105.3 },
-    { lat: 22.5, lon: 102.1 },
-    { lat: 14.5, lon: 109.0 },
-  ];
-  const H48 = 48 * 3600 * 1000;
-  function trackCam(p: LatLon | null): Cam {
+  function trackCam(): Cam {
     const wide = wideView();
-    const pts: LatLon[] = track.points.filter((q) => wide || Date.parse(q.t) >= nowMs - H48).map((q) => ({ lat: q.lat, lon: q.lon }));
-    pts.push(...(wide ? VIETNAM : VIETNAM_NORTH));
-    if (p) pts.push({ lat: p.lat, lon: p.lon });
+    const pts: LatLon[] = track.points.map((q) => ({ lat: q.lat, lon: q.lon }));
+    pts.push(...VIETNAM);
     const { top, bottom } = insets();
     const box = wide ? [56, top + 30, width - 28, height - bottom - 30] : [34, top + 22, width - 14, height - bottom - 30];
     return fitPoints(pts, box);
   }
-  function stormCam(): Cam | null {
-    const s = trackAt(track, timeMs);
-    return s ? framed(s.lat, s.lon, 9) : null;
-  }
 
-  let cam: Cam = homeCam();
-  let beforeSat: Cam | null = null;
-  let userMoved = false;
+  /** The fixed map view for the current layout; the satellite trip returns to it. */
+  let home: Cam = homeCam();
+  let cam: Cam = copyCam(home);
+  /** The layout changed while the satellite view was open: the map view is worked out again on the way back. */
+  let homeStale = false;
 
   // Flight, after AstroSphere src/scene/flight/flightView.ts (step): smoothstep progress, distance changing
   // geometrically (log-linear), direction slerped, camera rotation slerped over the first third.
@@ -383,6 +358,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   function fly(to: Cam, ms: number, done?: () => void): void {
     if (init.reducedMotion() || ms <= 0) {
       flight.on = false;
+      flightResolution(false);
       cam = copyCam(to);
       done?.();
       loop.markDirty();
@@ -390,6 +366,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     }
     if (flight.on) settleFlight();
     flight.on = true;
+    flightResolution(true);
     flight.t0 = performance.now();
     flight.ms = ms;
     flight.from = copyCam(cam);
@@ -405,6 +382,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   function settleFlight(): void {
     if (!flight.on) return;
     flight.on = false;
+    flightResolution(false);
     const d = camera.position.length();
     cam = { lat: Math.asin(camera.position.y / d) / RAD, lon: Math.atan2(-camera.position.z, camera.position.x) / RAD, dist: d };
   }
@@ -429,6 +407,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     if (flight.on) {
       const t = Math.min(1, Math.max(0, (now - flight.t0) / flight.ms));
       const s = t * t * (3 - 2 * t);
+      // Full resolution again for the slow last fifth of the flight, so the landing is sharp.
+      flightResolution(t < 0.8);
       const r = flight.from.dist * (flight.to.dist / flight.from.dist) ** s;
       slerpDir(flight.dir0, flight.dir1, s, fDir);
       camera.position.copy(fDir).multiplyScalar(r);
@@ -436,6 +416,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       camera.quaternion.slerpQuaternions(flight.q0, qLook, Math.min(1, t * 3));
       if (t >= 1) {
         flight.on = false;
+        flightResolution(false);
         cam = copyCam(flight.to);
         const done = flight.done;
         flight.done = null;
@@ -553,6 +534,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       width,
       height,
       satView,
+      returning: flight.on && !satView,
       full: mode === 'full',
       settled,
       dist: camera.position.length(),
@@ -706,6 +688,23 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   });
   markDirty = () => loop.markDirty();
   applyGround();
+  // Compile every material now, the satellite model's included, so the first flight out does not stall on it.
+  renderer.compile(scene, camera);
+
+  /** Works the fixed map view out again for a new layout; while the satellite view is open, only marks it stale. */
+  function reframe(): void {
+    if (satView) {
+      homeStale = true;
+      return;
+    }
+    home = homeCam();
+    if (!flight.on) cam = copyCam(home);
+    else {
+      flight.to = copyCam(home);
+      vec(home.lat, home.lon, 1, flight.dir1);
+    }
+    loop.markDirty();
+  }
 
   function resize(): void {
     width = Math.max(1, container.clientWidth);
@@ -713,7 +712,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    if (!userMoved && !flight.on && !satView) cam = place ? placeCam(place) : homeCam();
+    reframe();
     labelsMeasured = false;
     pinNameW = -1;
     satDir = [NaN, NaN];
@@ -728,73 +727,14 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     const h = init.frameAround ? Math.round(init.frameAround.getBoundingClientRect().height) : 0;
     if (Math.abs(h - frameH) < 3) return;
     frameH = h;
-    if (!userMoved && !flight.on && !satView) {
-      cam = place ? placeCam(place) : homeCam();
-      loop.markDirty();
-    }
+    reframe();
   });
   if (init.frameAround) frameRo.observe(init.frameAround);
 
-  // ---------------------------------------------------------------- Input: full mode only (SPEC 6.2)
-  const pointers = new Map<number, { x: number; y: number }>();
-  let pinch = 0;
-  const canInput = () => mode === 'full' && !satView;
-  const MIN_DIST = 1.12;
-  const MAX_DIST = 6;
-  const zoom = (f: number) => {
-    cam.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, 1 + (cam.dist - 1) * f));
-  };
-  const onDown = (e: PointerEvent) => {
-    if (!canInput()) return;
-    canvas.setPointerCapture?.(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      pinch = Math.hypot(a.x - b.x, a.y - b.y);
-    }
-  };
-  const onMove = (e: PointerEvent) => {
-    const p = pointers.get(e.pointerId);
-    if (!p || !canInput()) return;
-    settleFlight();
-    if (pointers.size === 1) {
-      // Degrees per pixel so the surface under the pointer roughly follows it.
-      const k = ((cam.dist - 1) * 2 * Math.tan((camera.fov / 2) * RAD)) / height / RAD;
-      cam.lon -= (e.clientX - p.x) * k;
-      cam.lat = Math.max(-80, Math.min(80, cam.lat + (e.clientY - p.y) * k));
-    }
-    p.x = e.clientX;
-    p.y = e.clientY;
-    if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinch > 0 && d > 0) zoom(pinch / d);
-      pinch = d;
-    }
-    userMoved = true;
-    loop.markDirty();
-  };
-  const onUp = (e: PointerEvent) => {
-    pointers.delete(e.pointerId);
-    pinch = 0;
-  };
-  const onWheel = (e: WheelEvent) => {
-    if (!canInput()) return;
-    e.preventDefault();
-    settleFlight();
-    zoom(Math.exp(e.deltaY * 0.0015));
-    userMoved = true;
-    loop.markDirty();
-  };
-  canvas.addEventListener('pointerdown', onDown);
-  canvas.addEventListener('pointermove', onMove);
-  canvas.addEventListener('pointerup', onUp);
-  canvas.addEventListener('pointercancel', onUp);
-  canvas.addEventListener('wheel', onWheel, { passive: false });
-  const applyMode = () => {
-    container.classList.toggle('globe--interactive', mode === 'full');
-  };
-  applyMode();
+  // No input on the map (SPEC 6.2): no drag, no wheel or pinch zoom. The globe's touch-action is none (styles.css),
+  // so a pinch over it does not zoom the page either.
+  // The `where` chip's highlight on the storm marker (SPEC 6.4), cleared after a while.
+  let highlightTimer = 0;
   updateStorm();
 
   return {
@@ -806,12 +746,6 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     setMode(m) {
       if (m === mode) return;
       mode = m;
-      applyMode();
-      pointers.clear();
-      if (m === 'easy' && !satView) {
-        userMoved = false;
-        fly(place ? placeCam(place) : homeCam(), FLY_MODE_MS);
-      }
       loop.markDirty();
     },
     setTime(ms) {
@@ -820,37 +754,36 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       updateStorm();
       loop.markDirty();
     },
-    flyToPlace(p) {
+    setPlace(p) {
       place = p ? { lat: p.lat, lon: p.lon, label: p.label } : null;
       if (p) vec(p.lat, p.lon, 1.003, pinWorld);
       pinName.textContent = p?.label ?? '';
+      // The pin's name for screen readers and the tests: the place's label ("Vị trí của bạn" for the own location).
+      pinEl.setAttribute('aria-label', p?.label || init.labels.pin);
       pinNameW = -1;
-      userMoved = false;
-      if (satView) {
-        loop.markDirty();
-        return;
-      }
-      fly(p ? placeCam(p) : homeCam(), FLY_PLACE_MS);
+      loop.markDirty();
     },
-    flyToStorm() {
-      const c = stormCam();
-      if (!c || satView) return;
-      fly(c, FLY_PLACE_MS);
+    highlightStorm() {
+      window.clearTimeout(highlightTimer);
+      stormEl.classList.add('globe__storm--hi');
+      highlightTimer = window.setTimeout(() => stormEl.classList.remove('globe__storm--hi'), 4000);
     },
     showSatellite() {
       if (satView) return;
-      beforeSat = copyCam(flight.on ? flight.to : cam);
       satView = true;
-      pointers.clear();
       fly(SAT_CAM, FLY_SAT_MS);
     },
     back() {
       if (!satView) return;
       satView = false;
-      fly(beforeSat ?? homeCam(), FLY_SAT_MS);
-      beforeSat = null;
+      if (homeStale) {
+        homeStale = false;
+        home = homeCam();
+      }
+      fly(home, FLY_SAT_MS);
     },
     dispose() {
+      window.clearTimeout(highlightTimer);
       ro.disconnect();
       frameRo.disconnect();
       loop.dispose();

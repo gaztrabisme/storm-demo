@@ -12,17 +12,18 @@
     "label": "Bão mô phỏng, dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): {now}"
   },
   "cone": {
-    "legend": "Vòng tròn: tâm bão có khoảng 70% khả năng đi vào (bán kính trung bình năm 2023 của Cơ quan Khí tượng Nhật Bản)"
+    "legend": "Vòng tròn: nơi tâm bão có thể đi qua"
   },
   "summary": {
-    "text": "Bão {name} · đang ở biển Đông · sức gió cấp {n} (ước tính)"
+    "text": "Bây giờ ({time}): bão Yagi ở Biển Đông · sức gió cấp {n} (ước tính)"
   },
   "check": {
     "button": "Nhà tôi có bị ảnh hưởng không?",
     "locating": "Đang tìm vị trí của bạn…"
   },
   "place": {
-    "yours": "Vị trí của bạn"
+    "yours": "Vị trí của bạn",
+    "yoursInside": "vị trí của bạn"
   },
   "picker": {
     "failed": "Không lấy được vị trí. Chọn tỉnh của bạn:",
@@ -32,7 +33,7 @@
   "verdict": {
     "headAffected": "Có. Gió từ cấp 8 trở lên sẽ tới {place}",
     "when": "Từ khoảng {from} đến {to}",
-    "wind": "Sức gió lớn nhất: cấp {n} (ước tính)",
+    "wind": "Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)",
     "actionsAffected": "Bạn nên làm ngay",
     "headUnaffected": "Không. {place} nằm ngoài vùng gió từ cấp 8 trở lên",
     "closest": "Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}",
@@ -51,7 +52,8 @@
   "timeline": {
     "title": "Các tỉnh, theo thời gian gió từ cấp 8 trở lên tới",
     "range": "{from} – {to}",
-    "far": "cách {km} km"
+    "far": "tâm bão cách {km} km",
+    "unaffected": "Không có gió từ cấp 8 trở lên"
   },
   "slider": {
     "label": "Thời gian"
@@ -159,11 +161,12 @@
     "preview": "Chữ trên trang sẽ to như dòng này.",
     "modeTitle": "Chọn chế độ",
     "easyLine": "Chỉ hiện điều quan trọng nhất: bão có tới chỗ bạn không, khi nào, và nên làm gì.",
-    "fullLine": "Thêm thanh thời gian, danh sách các tỉnh, và cho xoay, phóng to bản đồ.",
+    "fullLine": "Thêm thanh thời gian và danh sách các tỉnh.",
     "geoTitle": "Vị trí của bạn",
     "geo": "Trang này có thể hỏi vị trí của bạn để biết bão có tới chỗ bạn không. Bạn có thể chọn tỉnh thay vì cho vị trí.",
     "next": "Tiếp",
-    "skip": "Bỏ qua"
+    "skip": "Bỏ qua",
+    "start": "Bắt đầu"
   },
   "satellite": {
     "heading": "Vệ tinh GK-2A",
@@ -180,7 +183,17 @@
       "Hình vệ tinh trên màn hình chỉ là mô hình minh họa, không đúng tỉ lệ."
     ],
     "source": "Nguồn: Trung tâm Vệ tinh Khí tượng Quốc gia Hàn Quốc (NMSC), GK2A Fact Sheets; WMO OSCAR; Kim và cộng sự (2021), Remote Sensing.",
-    "back": "Quay lại bản đồ"
+    "back": "Quay lại bản đồ",
+    "hud": {
+      "header": "GK-2A · mô hình minh họa, không đúng tỉ lệ",
+      "orbit": "Quỹ đạo địa tĩnh · 128,2° Đông · cách mặt đất 35.786 km",
+      "ami": "AMI · 16 kênh ảnh",
+      "fullDisk": "Ảnh trọn đĩa Trái Đất: 10 phút một lần",
+      "resolution": "Độ phân giải: 0,5–2 km",
+      "ksem": "KSEM · theo dõi thời tiết vũ trụ",
+      "wing": "Tấm pin mặt trời",
+      "dish": "Ăng-ten"
+    }
   },
   "marker": {
     "storm": "Tâm bão",

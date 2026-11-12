@@ -13,17 +13,17 @@ export interface GlobeInit {
   mode: Mode;
   cone: ConeCircle[];
   provinces: readonly Province[];
-  /** Read at the moment of each camera move: true turns flights into cuts. */
+  /** Read at the start of each satellite flight: true turns it into a cut. */
   reducedMotion(): boolean;
   /** Accessible names for the overlays. */
   labels: { storm: string; pin: string; satellite: string; satName: string };
   /**
-   * Elements drawn over the globe (legends, the warning, the question sheet). Read at each camera move, so the
-   * place, the track and the storm are framed in the part of the globe they leave open; province names behind
-   * them are left out.
+   * Elements that stay over the globe for a layout (the demo label, the key on a desktop). Read when the layout
+   * changes, so the fixed map view frames the track and Vietnam in the part of the globe they leave open; province
+   * names behind them are left out.
    */
   covers?: () => Element[];
-  /** Elements over the globe that chart labels and notes keep clear of, without changing the framing. */
+  /** Elements over the globe that chart labels and notes keep clear of, without changing the framing (the question sheet). */
   avoid?: () => Element[];
   /** A cover whose size change re-frames the map at once (the key, whose height follows the map scale). */
   frameAround?: Element;
@@ -39,17 +39,17 @@ export interface GlobeController {
   /** Resolves once the first frame has been drawn. */
   readonly ready: Promise<void>;
   onReady(cb: () => void): void;
-  /** easy: camera locked over Vietnam, no input. full: drag rotates, wheel or pinch zooms. */
+  /** Province names on the map in full mode. The view is fixed in both modes (SPEC 6.2). */
   setMode(mode: Mode): void;
   /** Storm marker and wind area at this time (ms). */
   setTime(ms: number): void;
-  /** Pin the place and frame it with the track; null removes the pin. */
-  flyToPlace(place: (LatLon & { label?: string }) | null): void;
-  /** Frame the storm at the selected time. */
-  flyToStorm(): void;
-  /** Fly out to the GK-2A satellite (3-5 s, a cut under reduced motion). */
+  /** Pin the place; null removes the pin. The view does not move. */
+  setPlace(place: (LatLon & { label?: string }) | null): void;
+  /** Highlight the storm marker for a few seconds (the `where` chip); no camera move. */
+  highlightStorm(): void;
+  /** Fly out to the GK-2A satellite (1 s, a cut under reduced motion). */
   showSatellite(): void;
-  /** Fly back to the view before showSatellite(). */
+  /** Fly back to the fixed map view. */
   back(): void;
   dispose(): void;
 }

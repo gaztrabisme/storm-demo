@@ -151,17 +151,13 @@ p {
   overflow: hidden;
   background: var(--paper);
   color: var(--ink);
-  touch-action: manipulation;
+  /* The map view is fixed (SPEC 6.2): a pinch or drag over it zooms or scrolls nothing, the page included. */
+  touch-action: none;
 }
 
 .view-satellite .globe {
   background: var(--space);
   color: var(--space-ink);
-}
-
-.globe--interactive {
-  touch-action: none;
-  cursor: grab;
 }
 
 .globe__canvas {
@@ -399,6 +395,12 @@ p {
   margin: -12px 0 0 -12px;
   border: 1.5px solid var(--accent);
   border-radius: 50%;
+}
+
+/* The `where` chip's highlight: a second ring outside the marker (an outline, so the marker's box is unchanged). */
+.globe__storm--hi {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
 }
 
 /* The place: a small ink ring with a dot, its name in serif beside it. */
@@ -1012,6 +1014,15 @@ select {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.timeline__sub {
+  margin: 0;
+  padding: 18px 0 4px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .timeline__row:hover .timeline__name {

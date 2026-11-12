@@ -101,8 +101,9 @@ loadGlobe({
   labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), satName: t('marker.satName') },
   // On a desktop the key counts as a cover on the map, so the chart is framed above it. On a phone it is in the
   // panel, outside the map (and once the panel scrolls, its box can lie beside the map's rows).
-  covers: () => [demoLabel, usui.sheet, ...(globeBottom.contains(key.el) ? [key.el] : [])],
-  avoid: () => [],
+  covers: () => [demoLabel, ...(globeBottom.contains(key.el) ? [key.el] : [])],
+  // The question sheet comes and goes: map labels keep clear of it, but it never moves the fixed view (SPEC 6.2).
+  avoid: () => [usui.sheet],
   frameAround: key.el,
   onMetrics: (m) => key.setMetrics(m),
 })

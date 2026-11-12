@@ -32,6 +32,8 @@ export interface ChartFrame {
   width: number;
   height: number;
   satView: boolean;
+  /** True while the camera flies back from the satellite: nothing is drawn until it lands on the map. */
+  returning?: boolean;
   full: boolean;
   /** False during a camera flight: the notes wait until the camera settles. */
   settled: boolean;
@@ -334,8 +336,12 @@ export function createChart(deps: ChartDeps) {
       for (const g of glyphs) g.lw = 0;
       stormNote.key = placeNote.key = '';
     }
-    gMap.style.display = f.satView ? 'none' : '';
-    gOrbit.style.display = f.satView ? '' : 'none';
+    gMap.style.display = f.satView || f.returning ? 'none' : '';
+    gOrbit.style.display = f.satView && !f.returning ? '' : 'none';
+    if (f.returning) {
+      placeNoted = false;
+      return;
+    }
     if (f.satView) {
       updateOrbit(f);
       placeNoted = false;

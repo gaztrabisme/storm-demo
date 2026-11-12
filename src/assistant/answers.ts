@@ -1,5 +1,5 @@
 // Usui-chan's answers (SPEC 6.4, 10.5): built only from the approved text of SPEC 10 and the verdict.
-import { TRACK } from '../app';
+import { TRACK, placeInSentence } from '../app';
 import { t, tList } from '../i18n';
 import type { Place } from '../state';
 import { km, vnTime } from '../storm/format';
@@ -21,9 +21,9 @@ const deg = (x: number): string => x.toFixed(1).replace('.', ',');
 
 export function whenAnswer(v: Verdict, place: Place): Answer {
   if (v.affected && v.firstInside !== null && v.lastInside !== null) {
-    return { line: t('assistant.whenAffected', { place: place.label, from: vnTime(v.firstInside), to: vnTime(v.lastInside) }) };
+    return { line: t('assistant.whenAffected', { place: placeInSentence(place), from: vnTime(v.firstInside), to: vnTime(v.lastInside) }) };
   }
-  return { line: t('assistant.whenUnaffected', { place: place.label, km: km(v.closest.distanceKm), time: vnTime(v.closest.time) }) };
+  return { line: t('assistant.whenUnaffected', { place: placeInSentence(place), km: km(v.closest.distanceKm), time: vnTime(v.closest.time) }) };
 }
 
 export function whereAnswer(timeMs: number): Answer | null {

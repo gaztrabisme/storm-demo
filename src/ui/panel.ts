@@ -1,9 +1,9 @@
 // Main panel (SPEC 6.3): storm summary, check button, province picker, verdict card, timeline, knowledge cards.
 // Also the full-mode time slider (SPEC 6.2).
-import { FIRST_MS, LAST_MS, NOW_MS, PROVINCES, STEP_3H, TRACK, type Actions } from '../app';
+import { FIRST_MS, LAST_MS, NOW_MS, PROVINCES, STEP_3H, TRACK, placeInSentence, type Actions } from '../app';
 import { lookup, t, tList } from '../i18n';
 import { logEvent } from '../log';
-import { modeOf, type Store } from '../state';
+import { modeOf, type Place, type Store } from '../state';
 import { km, vnDay, vnTime } from '../storm/format';
 import { timeline, trackAt, windLevel, type Verdict } from '../storm/verdict';
 import { h, nextId } from './dom';
@@ -76,7 +76,7 @@ export function timeSlider(store: Store, actions: Actions): HTMLElement {
 
 export function stormSummary(): HTMLElement {
   const s = trackAt(TRACK, NOW_MS);
-  return h('p', { test: 'storm-summary', class: 'summary', text: t('summary.text', { name: TRACK.name, n: windLevel(s?.windKt ?? null) ?? '' }) });
+  return h('p', { test: 'storm-summary', class: 'summary', text: t('summary.text', { time: vnTime(NOW_MS), n: windLevel(s?.windKt ?? null) ?? '' }) });
 }
 
 /** Sort key for the province list: "TP. Hồ Chí Minh" is filed under H, by its name, not its title. */
@@ -128,12 +128,14 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
     window.clearTimeout(liveTimer);
     liveTimer = window.setTimeout(() => (live.textContent = s), 100);
   };
-  const render = (v: Verdict, label: string) => {
+  const render = (v: Verdict, p: Place) => {
+    const label = p.label;
+    const inside = placeInSentence(p);
     el.dataset.affected = String(v.affected);
     const body: Node[] = [];
     if (v.affected) {
       body.push(
-        h('h2', { test: 'verdict-head', class: 'verdict__head', text: t('verdict.headAffected', { place: label }) }),
+        h('h2', { test: 'verdict-head', class: 'verdict__head', text: t('verdict.headAffected', { place: inside }) }),
         h('p', { test: 'verdict-when', class: 'verdict__when', text: t('verdict.when', { from: vnTime(v.firstInside!), to: vnTime(v.lastInside!) }) }),
       );
       const n = windLevel(v.peakWindKt);
@@ -142,7 +144,7 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
     } else {
       body.push(
         h('h2', { test: 'verdict-head', class: 'verdict__head', text: t('verdict.headUnaffected', { place: label }) }),
-        h('p', { test: 'verdict-when', class: 'verdict__when', text: t('verdict.closest', { place: label, km: km(v.closest.distanceKm), time: vnTime(v.closest.time) }) }),
+        h('p', { test: 'verdict-when', class: 'verdict__when', text: t('verdict.closest', { place: inside, km: km(v.closest.distanceKm), time: vnTime(v.closest.time) }) }),
         h('p', { test: 'verdict-note', class: 'verdict__note', text: t('verdict.note') }),
         h('h3', { class: 'verdict__sub', text: t('verdict.actionsUnaffected') }),
       );
@@ -159,7 +161,7 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
   store.subscribe((s, prev) => {
     if (s.verdict === prev.verdict) return;
     if (s.verdict && s.place) {
-      render(s.verdict, s.place.label);
+      render(s.verdict, s.place);
       el.scrollIntoView({ block: 'nearest' });
     } else el.hidden = true;
   });
@@ -180,8 +182,14 @@ export function timelineList(store: Store, actions: Actions): HTMLElement {
   const days = vnMidnights(t0, t1).map((ms) => pct(xOf(ms)));
   const nowTicks: SVGElement[] = [];
   const list = h('ol', { class: 'timeline__list' });
+  let subheaded = false;
   for (const r of rows) {
     const v = r.verdict;
+    // SPEC 6.3: the unaffected rows come under their own sub-heading.
+    if (!v.affected && !subheaded) {
+      subheaded = true;
+      list.append(h('li', { class: 'timeline__group' }, h('h3', { class: 'timeline__sub', text: t('timeline.unaffected') })));
+    }
     const detail = v.affected ? t('timeline.range', { from: vnTime(v.firstInside!), to: vnTime(v.lastInside!) }) : t('timeline.far', { km: km(v.closest.distanceKm) });
     const bar = svg('timeline__bar');
     svgChild(bar, 'line', { class: 'timeline__base', x1: '0%', x2: '100%', y1: 6.5, y2: 6.5 });

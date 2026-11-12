@@ -172,7 +172,7 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
       case 'where':
         actions.closeSatellite();
         show(whereAnswer(s.timeMs));
-        actions.flyToStorm();
+        actions.highlightStorm();
         break;
       case 'source':
         show(sourceAnswer());
