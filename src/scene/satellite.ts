@@ -4,8 +4,8 @@
 import * as THREE from 'three';
 import { SCENE } from './colors';
 
-/** Body edge length in scene units (1 = Earth radius). About 16 km, far larger than the real body. */
-export const SAT_SIZE = 0.0025;
+/** Body edge length in scene units (1 = Earth radius). About 11 km, far larger than the real body. */
+export const SAT_SIZE = 0.0017;
 
 export function buildSatellite(): THREE.Group {
   const s = SAT_SIZE;

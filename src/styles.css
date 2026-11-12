@@ -89,7 +89,7 @@ p {
 #app {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 55vh minmax(0, 1fr);
+  grid-template-rows: auto 51vh minmax(0, 1fr);
   grid-template-areas: 'top' 'globe' 'panel';
   height: 100vh;
   height: 100dvh;
@@ -127,7 +127,7 @@ p {
 
 .topbar__actions {
   display: flex;
-  gap: 8px;
+  gap: 4px;
 }
 
 @media (max-width: 899px) {
@@ -140,7 +140,7 @@ p {
   }
 
   .btn--bar {
-    padding: 8px 10px;
+    padding: 8px 6px;
   }
 }
 
@@ -208,17 +208,16 @@ p {
     0 0 2px var(--space);
 }
 
-/* Desktop: the map key, in the open Pacific north-east of the track (the chart is framed to leave it). */
+/* Desktop: the map key in the open sea at the lower right, under the track's start (the chart is framed to
+   leave the band it sits in). */
 .globe__bottom {
   position: absolute;
-  top: 84px;
-  right: 20px;
-  left: 45%;
+  right: 24px;
+  bottom: 30px;
   z-index: 6;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: flex-end;
   pointer-events: none;
 }
 
@@ -316,8 +315,10 @@ p {
   text-anchor: middle;
 }
 
-.chart__province {
-  fill: var(--muted);
+.chart__date-lead {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.6px;
 }
 
 .chart__notes {
@@ -469,26 +470,28 @@ p {
 }
 
 /* ---- Map key: the worked specimen (ui/key.ts) ----
-   One real piece of the track at the map's scale in the middle, its four notes at the corners joined by fine
-   leaders, the dot sizes underneath. No box: the notes carry a halo in the ground colour. */
+   The glyph at the map's scale on the left; its four notes in one left-aligned italic column on the right,
+   joined by fine leaders; the dot sizes under the column. A hairline above it holds it apart from the map. No
+   box: the notes carry a halo in the ground colour. */
 .key {
   position: relative;
   margin: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    'tl tr'
-    'stage stage'
-    'bl br'
-    'sizes sizes';
-  column-gap: 28px;
-  row-gap: 4px;
+    'stage notes'
+    'stage sizes';
+  grid-template-rows: auto 1fr;
+  column-gap: 22px;
+  align-items: start;
   color: var(--ink);
 }
 
+
 .globe .key {
-  align-self: flex-end;
-  width: min(420px, 100%);
+  width: min(500px, 100%);
+  padding-top: 14px;
+  border-top: 1px solid var(--coast);
 }
 
 .view-satellite .key {
@@ -504,54 +507,39 @@ p {
 
 .key__stage {
   grid-area: stage;
+  min-width: 40px;
   min-height: 40px;
+}
+
+.key__notes {
+  grid-area: notes;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .key__note {
   position: relative;
-  max-width: 250px;
+  max-width: 300px;
   font-size: 0.8125rem;
   font-style: italic;
   line-height: 1.35;
   color: var(--ink);
+  text-align: left;
   text-shadow:
     0 0 2px var(--paper),
     0 0 2px var(--paper),
     0 0 3px var(--paper);
 }
 
-.key__note--tl {
-  grid-area: tl;
-  align-self: end;
-  justify-self: end;
-  text-align: right;
-}
-
-.key__note--tr {
-  grid-area: tr;
-  align-self: end;
-  justify-self: start;
-}
-
-.key__note--bl {
-  grid-area: bl;
-  justify-self: end;
-  text-align: right;
-}
-
-.key__note--br {
-  grid-area: br;
-  justify-self: start;
-}
-
 .key__sizes {
   grid-area: sizes;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
-  gap: 4px 16px;
-  margin-top: 8px;
+  gap: 6px 14px;
+  margin-top: 12px;
   font-size: 0.75rem;
   font-style: italic;
   color: var(--muted);
@@ -626,7 +614,6 @@ p {
 .panel {
   grid-area: panel;
   min-height: 0;
-  /* Usui-chan's corner: a strip under the scrolling column, so her portrait never sits on its text. */
   margin-bottom: var(--foot-h);
   overflow-y: auto;
   overflow-x: hidden;
@@ -636,6 +623,10 @@ p {
   overscroll-behavior: contain;
 }
 
+/* Usui-chan's corner. While her warning shows, a strip of ground under the panel holds it, so the bubble never
+   sits on the verdict (assistant/index.ts sets --foot-h to the bubble's height). Otherwise the panel runs to
+   the bottom, ends in a short fade that shows the list goes on, and leaves room under its last line for her
+   portrait. */
 body::after {
   content: '';
   position: fixed;
@@ -648,11 +639,22 @@ body::after {
   pointer-events: none;
 }
 
-@media (min-width: 900px) {
-  :root {
-    --foot-h: 88px;
-  }
+.has-foot body::after {
+  border-top: 1px solid var(--hair);
+}
 
+.panel::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: 44px;
+  margin-top: -44px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--paper) 0%, transparent), var(--paper) 70%);
+  pointer-events: none;
+}
+
+@media (min-width: 900px) {
   .panel {
     border-top: 0;
     border-left: 1px solid var(--ink);
@@ -670,20 +672,13 @@ body::after {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* Phone: room under the last line for Usui-chan's portrait (desktop gives her a strip of her own). */
+  /* Room under the last line for Usui-chan's portrait (56 px, 16 px from the edge) and the fade. */
   padding: 18px 20px 96px;
 }
 
-@media (min-width: 900px) {
-  .panel__main,
-  .satinfo {
-    padding-bottom: 24px;
-  }
-}
-
 .panel__main > .key {
-  padding-top: 14px;
-  border-top: 1px solid var(--hair);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hair);
 }
 
 .view-satellite .panel__main {
@@ -731,12 +726,32 @@ body::after {
 }
 
 .btn:hover {
-  background: var(--wash);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+/* Header links and the ask control after a verdict: underlined text, square 44 px target, no box. */
+.btn--bar,
+.btn--link {
+  border-color: transparent;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.btn--bar:hover,
+.btn--link:hover {
+  box-shadow: none;
+  text-decoration-thickness: 2px;
 }
 
 .btn--bar {
-  padding: 8px 12px;
-  font-size: 0.9375rem;
+  padding: 8px 8px;
+}
+
+.btn--link {
+  align-self: flex-start;
+  padding: 8px 0;
+  text-align: left;
 }
 
 .btn--primary {
@@ -803,7 +818,7 @@ select {
 .slider {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 2px 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--hair);
@@ -816,14 +831,94 @@ select {
   color: var(--muted);
 }
 
+.slider__track {
+  position: relative;
+  min-width: 0;
+  padding-bottom: 14px;
+}
+
+/* The axis under the input: inset by half the thumb, so the thumb's centre rides the dates. */
+.slider__axis {
+  position: absolute;
+  top: 0;
+  left: 11px;
+  width: calc(100% - 22px);
+  height: 58px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.slider__past,
+.slider__forecast {
+  stroke: var(--ink);
+  stroke-width: 2px;
+}
+
+.slider__forecast {
+  stroke-dasharray: 0.01 5;
+  stroke-linecap: round;
+  stroke-width: 2.4px;
+}
+
+.slider__tick {
+  stroke: var(--ink);
+  stroke-width: 1px;
+}
+
+.slider__date {
+  fill: var(--muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+}
+
 .slider input {
+  position: relative;
+  display: block;
   width: 100%;
   height: var(--tap);
   margin: 0;
-  accent-color: var(--ink);
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.slider input::-webkit-slider-runnable-track {
+  height: var(--tap);
+  background: transparent;
+}
+
+.slider input::-moz-range-track {
+  height: var(--tap);
+  background: transparent;
+}
+
+/* The thumb: an ink ring on the ground colour, 22 px, inside the 44 px target. */
+.slider input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 11px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+.slider input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+.slider input:hover::-webkit-slider-thumb {
+  border-width: 3px;
 }
 
 .slider__readout {
+  padding-top: 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -878,6 +973,10 @@ select {
   margin-top: 4px;
 }
 
+.check .btn--link {
+  font-size: 1.0625rem;
+}
+
 .actions,
 .card ul,
 .credits ul {
@@ -902,18 +1001,15 @@ select {
   border-top: 1px solid var(--hair);
 }
 
-.timeline__list li {
-  border-bottom: 1px solid var(--hair);
-}
-
 .timeline__row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
+  gap: 2px 8px;
   width: 100%;
   min-height: var(--tap);
-  padding: 10px 4px;
+  padding: 8px 0 6px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -923,12 +1019,14 @@ select {
   cursor: pointer;
 }
 
-.timeline__row:hover {
-  background: var(--wash);
+.timeline__row:hover .timeline__name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .timeline__name {
-  font-weight: 600;
+  font-family: var(--serif);
+  font-size: 1.0625rem;
 }
 
 .timeline__detail {
@@ -936,6 +1034,38 @@ select {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   text-align: right;
+}
+
+/* The span bar: a muted baseline with a tick each midnight, the span in the wind area's tint with an accent
+   edge, a hairline at the slider's time. */
+.timeline__bar {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 13px;
+  overflow: visible;
+}
+
+.timeline__base {
+  stroke: var(--muted);
+  stroke-width: 1px;
+  opacity: 0.6;
+}
+
+.timeline__day {
+  stroke: var(--muted);
+  stroke-width: 1px;
+  opacity: 0.6;
+}
+
+.timeline__span {
+  fill: color-mix(in srgb, var(--accent) var(--wind-alpha), transparent);
+  stroke: var(--accent);
+  stroke-width: 1px;
+}
+
+.timeline__now {
+  stroke: var(--ink);
+  stroke-width: 1px;
 }
 
 /* ---- Knowledge cards: sections, not boxes ---- */
@@ -981,12 +1111,14 @@ details[open] > summary::after {
 }
 
 .learn__summary {
-  padding: 8px 14px;
-  border: 1px solid var(--ink);
+  padding: 8px 0;
+  border-top: 1px solid var(--hair);
+  border-bottom: 1px solid var(--hair);
 }
 
 .learn__summary:hover {
-  background: var(--wash);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .card {

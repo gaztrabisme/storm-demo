@@ -7,6 +7,26 @@
   pointer-events: none;
 }
 
+.globe__prov {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+
+/* The province mark: a 2 px muted square (no track glyph is square). */
+.globe__prov::before {
+  content: '';
+  position: absolute;
+  left: -1.5px;
+  top: -1.5px;
+  width: 3px;
+  height: 3px;
+  background: var(--muted);
+}
+
 .globe__label {
   position: absolute;
   left: 0;

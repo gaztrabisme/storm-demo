@@ -1,7 +1,7 @@
 // The three.js globe behind the controller interface (scene/types.ts). Loaded lazily by scene/index.ts.
 // Frame: unit sphere = Earth (6371 km); y is north, longitude 0 on +x, east towards -z.
 import * as THREE from 'three';
-import { trackAt, type LatLon, type Step } from '../storm/verdict';
+import { timeline, trackAt, type LatLon, type Step } from '../storm/verdict';
 import type { Mode } from '../state';
 import type { CreateGlobe, GlobeController, GlobeInit } from './types';
 import { createChart } from './chart';
@@ -114,14 +114,24 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   labelLayer.className = 'globe__labels';
   labelLayer.setAttribute('aria-hidden', 'true');
   container.append(labelLayer);
+  // Each province: a small square mark at its point (no track glyph is square) and its name beside it. Both
+  // show together or not at all, so the map never carries a dot without a name (DESIGN 2: context recedes).
+  const marks: HTMLElement[] = [];
   const labels = init.provinces.map((p) => {
+    const mark = document.createElement('span');
+    mark.className = 'globe__prov';
+    mark.hidden = true;
     const el = document.createElement('span');
     el.className = 'globe__label';
     el.textContent = p.name;
-    el.hidden = true;
-    labelLayer.append(el);
+    mark.append(el);
+    labelLayer.append(mark);
+    marks.push(mark);
     return el;
   });
+  /** Placing order: the provinces the panel lists first (wind reaches them, earliest first), then the rest. */
+  const idIndex = new Map(init.provinces.map((p, i) => [p.id, i]));
+  const labelOrder = timeline(init.provinces, track, nowMs).map((r) => idIndex.get(r.id)!);
   const nLabels = labels.length;
   const labelW = new Float32Array(nLabels);
   const labelH = new Float32Array(nLabels);
@@ -132,13 +142,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   let labelsMeasured = false;
   function measureLabels(): void {
     labelLayer.hidden = false;
-    for (let i = 0; i < nLabels; i++) labels[i].hidden = false;
+    for (let i = 0; i < nLabels; i++) marks[i].hidden = false;
     for (let i = 0; i < nLabels; i++) {
       labelW[i] = labels[i].offsetWidth;
       labelH[i] = labels[i].offsetHeight;
     }
     for (let i = 0; i < nLabels; i++) {
-      labels[i].hidden = labelOn[i] === 0;
+      marks[i].hidden = labelOn[i] === 0;
     }
     labelsMeasured = labelW[0] > 0;
   }
@@ -326,11 +336,17 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     { lat: 12.6, lon: 109.5 },
     { lat: 22.5, lon: 102.1 },
   ];
+  /** North and central Vietnam: what a phone frames with the track, leaving out the empty south. */
+  const VIETNAM_NORTH: LatLon[] = [
+    { lat: 23.4, lon: 105.3 },
+    { lat: 22.5, lon: 102.1 },
+    { lat: 14.5, lon: 109.0 },
+  ];
   const H48 = 48 * 3600 * 1000;
   function trackCam(p: LatLon | null): Cam {
     const wide = wideView();
     const pts: LatLon[] = track.points.filter((q) => wide || Date.parse(q.t) >= nowMs - H48).map((q) => ({ lat: q.lat, lon: q.lon }));
-    pts.push(...VIETNAM);
+    pts.push(...(wide ? VIETNAM : VIETNAM_NORTH));
     if (p) pts.push({ lat: p.lat, lon: p.lon });
     const { top, bottom } = insets();
     const box = wide ? [56, top + 30, width - 28, height - bottom - 30] : [34, top + 22, width - 14, height - bottom - 30];
@@ -625,17 +641,17 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       }
       return true;
     };
-    for (let i = 0; i < nLabels; i++) {
+    for (const i of labelOrder) {
       let on = screen(provWorld[i], true);
       const w = labelW[i];
       const hh = labelH[i];
       let x = NaN;
       let y = NaN;
+      const px = proj.x;
+      const py = proj.y;
       if (on) {
-        // Right of the dot, then left, above, below; a name that would touch the track, a 70 % circle, a
-        // date or a note is left out (the panel lists every province).
-        const px = proj.x;
-        const py = proj.y;
+        // Right of the mark, then left, above, below; a name that would touch the track, a 70 % circle, a
+        // date or a note is left out with its mark (the panel lists every province).
         on = false;
         for (const [cx, cy] of [
           [px + 6, py - hh / 2],
@@ -643,7 +659,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
           [px - w / 2, py - hh - 3],
           [px - w / 2, py + 3],
         ]) {
-          if (free(cx, cy, w, hh)) {
+          if (free(cx, cy, w, hh) && free(px - 3, py - 3, 6, 6)) {
             x = cx;
             y = cy;
             on = true;
@@ -651,16 +667,20 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
           }
         }
       }
-      if (on) occupy(x - 2, y - 1, x + w + 2, y + hh + 1);
-      const el = labels[i];
+      if (on) {
+        occupy(x - 2, y - 1, x + w + 2, y + hh + 1);
+        occupy(px - 3, py - 3, px + 3, py + 3);
+      }
+      const mark = marks[i];
       if ((labelOn[i] === 1) !== on) {
         labelOn[i] = on ? 1 : 0;
-        el.hidden = !on;
+        mark.hidden = !on;
       }
       if (on && (x !== labelX[i] || y !== labelY[i])) {
         labelX[i] = x;
         labelY[i] = y;
-        el.style.transform = `translate(${x}px, ${y}px)`;
+        mark.style.transform = `translate(${px}px, ${py}px)`;
+        labels[i].style.transform = `translate(${x - px}px, ${y - py}px)`;
       }
     }
   }
@@ -702,6 +722,18 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const ro = new ResizeObserver(resize);
   ro.observe(container);
   resize();
+  // The key's height follows the map scale; when it changes, the home framing is worked out again around it.
+  let frameH = -1;
+  const frameRo = new ResizeObserver(() => {
+    const h = init.frameAround ? Math.round(init.frameAround.getBoundingClientRect().height) : 0;
+    if (Math.abs(h - frameH) < 3) return;
+    frameH = h;
+    if (!userMoved && !flight.on && !satView) {
+      cam = place ? placeCam(place) : homeCam();
+      loop.markDirty();
+    }
+  });
+  if (init.frameAround) frameRo.observe(init.frameAround);
 
   // ---------------------------------------------------------------- Input: full mode only (SPEC 6.2)
   const pointers = new Map<number, { x: number; y: number }>();
@@ -820,6 +852,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     },
     dispose() {
       ro.disconnect();
+      frameRo.disconnect();
       loop.dispose();
       renderer.dispose();
       themeObserver.disconnect();

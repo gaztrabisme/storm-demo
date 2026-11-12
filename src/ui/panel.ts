@@ -4,9 +4,34 @@ import { FIRST_MS, LAST_MS, NOW_MS, PROVINCES, STEP_3H, TRACK, type Actions } fr
 import { lookup, t, tList } from '../i18n';
 import { logEvent } from '../log';
 import { modeOf, type Store } from '../state';
-import { km, vnTime } from '../storm/format';
+import { km, vnDay, vnTime } from '../storm/format';
 import { timeline, trackAt, windLevel, type Verdict } from '../storm/verdict';
 import { h, nextId } from './dom';
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+const H24 = 24 * 3600 * 1000;
+/** Vietnam midnights (UTC+7) from a to b. */
+function vnMidnights(a: number, b: number): number[] {
+  const out: number[] = [];
+  const off = 7 * 3600 * 1000;
+  for (let ms = Math.ceil((a + off) / H24) * H24 - off; ms <= b; ms += H24) out.push(ms);
+  return out;
+}
+function svg(cls: string, attrs: Record<string, string> = {}): SVGSVGElement {
+  const e = document.createElementNS(SVGNS, 'svg');
+  e.setAttribute('class', cls);
+  e.setAttribute('aria-hidden', 'true');
+  e.setAttribute('focusable', 'false');
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+function svgChild(parent: Element, tag: string, attrs: Record<string, string | number>): SVGElement {
+  const e = document.createElementNS(SVGNS, tag) as SVGElement;
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  parent.append(e);
+  return e;
+}
+const pct = (n: number) => `${Math.round(n * 10000) / 100}%`;
 
 export function timeSlider(store: Store, actions: Actions): HTMLElement {
   const steps = Math.round((LAST_MS - FIRST_MS) / STEP_3H);
@@ -24,7 +49,21 @@ export function timeSlider(store: Store, actions: Actions): HTMLElement {
     'aria-label': t('slider.label'),
     oninput: () => actions.setTime(FIRST_MS + Number(input.value) * STEP_3H),
   });
-  const el = h('div', { class: 'slider full-only' }, h('label', { class: 'slider__label', for: id, text: t('slider.label') }), input, readout);
+  // The slider drawn as the chart's time axis (DESIGN 1, 2): a 2 px ink line, solid up to now and dotted after
+  // it like the track, a tick at each midnight and the date every other day, in the map's date style. The native
+  // range input sits on top with a transparent track, so its thumb rides the axis.
+  const axis = svg('slider__axis');
+  const span = LAST_MS - FIRST_MS;
+  const nowX = (NOW_MS - FIRST_MS) / span;
+  svgChild(axis, 'line', { class: 'slider__past', x1: '0%', x2: pct(nowX), y1: 22, y2: 22 });
+  svgChild(axis, 'line', { class: 'slider__forecast', x1: pct(nowX), x2: '100%', y1: 22, y2: 22 });
+  vnMidnights(FIRST_MS, LAST_MS).forEach((ms, i) => {
+    const x = pct((ms - FIRST_MS) / span);
+    svgChild(axis, 'line', { class: 'slider__tick', x1: x, x2: x, y1: 17, y2: 27 });
+    if (i % 2 === 0) svgChild(axis, 'text', { class: 'slider__date', x, y: 42 }).textContent = vnDay(ms);
+  });
+  const track = h('div', { class: 'slider__track' }, axis as unknown as Node, input);
+  const el = h('div', { class: 'slider full-only' }, h('label', { class: 'slider__label', for: id, text: t('slider.label') }), track, readout);
   store.subscribe((s, prev) => {
     if (s.timeMs === prev.timeMs) return;
     readout.textContent = vnTime(s.timeMs);
@@ -62,8 +101,13 @@ export function checkBlock(store: Store, actions: Actions): HTMLElement {
     line.textContent = s.picker === 'failed' ? t('picker.failed') : t('picker.label');
   };
   store.subscribe((s, prev) => {
-    // Once there is an answer, the question steps back to an outlined button (DESIGN 3: one ink fill).
-    if (!!s.verdict !== !!prev.verdict) btn.classList.toggle('btn--primary', !s.verdict);
+    // Once there is an answer, the question steps back to an underlined text link (DESIGN 3: one ink fill;
+    // DESIGN 5: no boxes), keeping its 44 px target.
+    if (!!s.verdict !== !!prev.verdict) {
+      btn.classList.toggle('btn--primary', !s.verdict);
+      btn.classList.toggle('btn--big', !s.verdict);
+      btn.classList.toggle('btn--link', !!s.verdict);
+    }
     if (s.locating !== prev.locating || s.picker !== prev.picker) {
       render();
       if (s.picker !== 'hidden' && prev.picker === 'hidden') {
@@ -129,12 +173,32 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
   return h('div', { class: 'verdict-host' }, live, el);
 }
 
-export function timelineList(actions: Actions): HTMLElement {
+/**
+ * The province list as spans on one time axis (DESIGN 1: the panel is the chart's caption column): each row
+ * keeps its name and its dates, and under them a thin bar from when wind of level 8 or more reaches the province
+ * to when it leaves, on an axis shared by every row (now minus 12 h to the track's last point), with a hairline
+ * at the slider's time. A province the wind does not reach keeps the bare axis.
+ */
+export function timelineList(store: Store, actions: Actions): HTMLElement {
   const rows = timeline(PROVINCES, TRACK, NOW_MS);
+  const t0 = NOW_MS - H24 / 2;
+  const t1 = LAST_MS;
+  const xOf = (ms: number) => Math.max(0, Math.min(1, (ms - t0) / (t1 - t0)));
+  const days = vnMidnights(t0, t1).map((ms) => pct(xOf(ms)));
+  const nowTicks: SVGElement[] = [];
   const list = h('ol', { class: 'timeline__list' });
   for (const r of rows) {
     const v = r.verdict;
     const detail = v.affected ? t('timeline.range', { from: vnTime(v.firstInside!), to: vnTime(v.lastInside!) }) : t('timeline.far', { km: km(v.closest.distanceKm) });
+    const bar = svg('timeline__bar');
+    svgChild(bar, 'line', { class: 'timeline__base', x1: '0%', x2: '100%', y1: 6.5, y2: 6.5 });
+    for (const x of days) svgChild(bar, 'line', { class: 'timeline__day', x1: x, x2: x, y1: 4.5, y2: 8.5 });
+    if (v.affected) {
+      const a = xOf(Date.parse(v.firstInside!));
+      const b = xOf(Date.parse(v.lastInside!));
+      svgChild(bar, 'rect', { class: 'timeline__span', x: pct(a), width: pct(Math.max(0.004, b - a)), y: 3.5, height: 6 });
+    }
+    nowTicks.push(svgChild(bar, 'line', { class: 'timeline__now', y1: 0, y2: 13 }));
     list.append(
       h(
         'li',
@@ -145,10 +209,24 @@ export function timelineList(actions: Actions): HTMLElement {
           h('span', { class: 'timeline__name', text: r.province.name }),
           ' ',
           h('span', { class: 'timeline__detail', text: detail }),
+          bar as unknown as Node,
         ),
       ),
     );
   }
+  const setNow = (ms: number) => {
+    const inside = ms >= t0 && ms <= t1;
+    const x = pct(xOf(ms));
+    for (const l of nowTicks) {
+      l.setAttribute('x1', x);
+      l.setAttribute('x2', x);
+      l.style.display = inside ? '' : 'none';
+    }
+  };
+  setNow(store.state.timeMs);
+  store.subscribe((s, prev) => {
+    if (s.timeMs !== prev.timeMs) setNow(s.timeMs);
+  });
   return h('section', { test: 'timeline', class: 'timeline full-only' }, h('h2', { class: 'panel__h', text: t('timeline.title') }), list);
 }
 

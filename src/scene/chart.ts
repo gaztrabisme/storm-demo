@@ -1,7 +1,7 @@
 // The storm-track chart drawn over the globe (DESIGN 2): one SVG layer, redrawn on each globe frame from
 // screen projections the globe supplies. It holds the graticule with degree labels, the track line and its
 // glyphs (dot area proportional to the wind level), date labels every 24 h, the 70 % circles with their
-// hours, the wind area, province dots, two notes with curved leaders, and in the satellite view the
+// hours, the wind area, two notes with curved leaders, and in the satellite view the
 // geostationary orbit. Colours come from the CSS tokens (styles.css), so the chart follows the theme.
 import { t } from '../i18n';
 import { km, vnDay, vnTime } from '../storm/format';
@@ -70,7 +70,6 @@ export function createChart(deps: ChartDeps) {
   const windPath = el('path', 'chart__wind', gMap);
   const pastPath = el('path', 'chart__track chart__track--past', gMap);
   const forePath = el('path', 'chart__track chart__track--forecast', gMap);
-  const gProv = el('g', 'chart__provinces', gMap);
   const gGlyph = el('g', 'chart__glyphs', gMap);
   const gDates = el('g', 'chart__dates', gMap);
   const gNotes = el('g', 'chart__notes', gMap);
@@ -94,11 +93,13 @@ export function createChart(deps: ChartDeps) {
     c.setAttribute('r', String(f1(r)));
     c.dataset.level = level === null ? '' : String(level);
     let label: SVGTextElement | null = null;
+    let lead: SVGPathElement | null = null;
     if (isDatePoint(p)) {
+      lead = el('path', 'chart__date-lead', gDates);
       label = el('text', 'chart__date', gDates);
       label.textContent = vnDay(p.t);
     }
-    return { p, level, r, c, label, x: NaN, y: NaN, on: false, lw: 0, lh: 0 };
+    return { p, level, r, c, label, lead, x: NaN, y: NaN, on: false, lw: 0, lh: 0 };
   });
 
   // ---- 70 % circles and their hour labels.
@@ -109,12 +110,6 @@ export function createChart(deps: ChartDeps) {
     return { c, path, lab, ring: circleRing(c.lat, c.lon, c.radiusKm), edge: destination(c.lat, c.lon, 180, c.radiusKm) };
   });
 
-  // ---- Province dots (full mode).
-  const provDots = deps.provinces.map((p) => {
-    const c = el('circle', 'chart__province', gProv);
-    c.setAttribute('r', '1.5');
-    return { p, c };
-  });
 
   // ---- Notes: the storm at the selected time, and the place once one is chosen.
   interface Note {
@@ -170,43 +165,60 @@ export function createChart(deps: ChartDeps) {
     }
   }
 
-  /** Box for a note at angle a (deg, screen) and distance d from the anchor. */
-  function candidate(ax: number, ay: number, w: number, h: number, a: number, d: number): { box: Box; tx: number; ty: number } {
+  /**
+   * Boxes for a note at angle a (deg, screen) and distance d from the anchor: beside the leader's end when the
+   * leader runs sideways; above or below it when it runs up or down, centred on it or starting or ending there.
+   */
+  function candidates(ax: number, ay: number, w: number, h: number, a: number, d: number, more: boolean): Array<{ box: Box; tx: number; ty: number }> {
     const cx = ax + Math.cos(a * RAD) * d;
     const cy = ay + Math.sin(a * RAD) * d;
     const c = Math.cos(a * RAD);
-    let x0: number;
-    let y0: number;
-    let tx: number;
-    let ty: number;
-    if (c > 0.35) {
-      x0 = cx;
-      y0 = cy - h / 2;
-      tx = cx - 3;
-      ty = cy;
-    } else if (c < -0.35) {
-      x0 = cx - w;
-      y0 = cy - h / 2;
-      tx = cx + 3;
-      ty = cy;
-    } else {
-      x0 = cx - w / 2;
-      y0 = Math.sin(a * RAD) > 0 ? cy : cy - h;
-      tx = cx;
-      ty = Math.sin(a * RAD) > 0 ? cy - 3 : cy + 3;
+    const out: Array<{ box: Box; tx: number; ty: number }> = [];
+    const push = (x0: number, y0: number, tx: number, ty: number) => out.push({ box: [x0 - 4, y0 - 2, x0 + w + 4, y0 + h + 2], tx, ty });
+    if (c > 0.35) push(cx, cy - h / 2, cx - 3, cy);
+    else if (c < -0.35) push(cx - w, cy - h / 2, cx + 3, cy);
+    if (more ? Math.abs(c) <= 0.5 : Math.abs(c) <= 0.35) {
+      const below = Math.sin(a * RAD) > 0;
+      const y0 = below ? cy : cy - h;
+      const ty = below ? cy - 3 : cy + 3;
+      push(cx - w / 2, y0, cx, ty);
+      if (more) {
+        push(cx - 6, y0, cx, ty);
+        push(cx - w + 6, y0, cx, ty);
+      }
     }
-    return { box: [x0 - 4, y0 - 2, x0 + w + 4, y0 + h + 2], tx, ty };
+    return out;
   }
 
   // Preferred first: lower right (south-east, open sea on this chart), upper right, then round the compass.
-  const ANGLES = [45, 30, 60, -30, 150, -150, 0, 180, -60, 120, -120, 90, -90, 15, -15, 165, -165, -45, 135, -135];
+  const ANGLES = [45, 30, 60, -30, 150, -150, 0, 180, -60, 120, -120, 90, -90, 15, -15, 165, -165, -45, 135, -135, 75, 105, -75, -105];
 
-  function fitNote(n: Note, ax: number, ay: number, f: ChartFrame, taken: number[][], glyphPts: number[][]): boolean {
+  const STORM_DISTS = [70, 100, 140, 190];
+  /** The place's note stays close: its leader is at most about 120 px (DESIGN 2, notes in open sea). */
+  const PLACE_DISTS = [45, 65, 85, 105, 120];
+
+  /** Number of the polylines' segments (x0, y0, x1, y1) that the segment a-b crosses. */
+  function crossings(ax: number, ay: number, bx: number, by: number, segs: number[][]): number {
+    let k = 0;
+    for (const [x0, y0, x1, y1] of segs) {
+      const d1 = (bx - ax) * (y0 - ay) - (by - ay) * (x0 - ax);
+      const d2 = (bx - ax) * (y1 - ay) - (by - ay) * (x1 - ax);
+      const d3 = (x1 - x0) * (ay - y0) - (y1 - y0) * (ax - x0);
+      const d4 = (x1 - x0) * (by - y0) - (y1 - y0) * (bx - x0);
+      if (d1 * d2 < 0 && d3 * d4 < 0) k++;
+    }
+    return k;
+  }
+
+  /**
+   * Places a note round its anchor: open sea first, clear of the glyphs, and (when `lines` is given) with the
+   * fewest crossings of the track and the 70 % circles by its leader or its text.
+   */
+  function fitNote(n: Note, ax: number, ay: number, f: ChartFrame, taken: number[][], glyphPts: number[][], dists: number[], lines: number[][] | null): boolean {
     let best: { box: Box; tx: number; ty: number } | null = null;
     let bestScore = Infinity;
-    for (const d of [70, 100, 140, 190]) {
-      for (let i = 0; i < ANGLES.length; i++) {
-        const c = candidate(ax, ay, n.w, n.h, ANGLES[i], d);
+    for (const d of dists) {
+      for (let i = 0; i < ANGLES.length; i++) for (const c of candidates(ax, ay, n.w, n.h, ANGLES[i], d, !!lines)) {
         const [x0, y0, x1, y1] = c.box;
         if (x0 < 6 || y0 < 6 || x1 > f.width - 6 || y1 > f.height - 6) continue;
         if (taken.some((b) => overlaps(b, c.box))) continue;
@@ -217,7 +229,16 @@ export function createChart(deps: ChartDeps) {
         }
         let hits = 0;
         for (const [gx, gy, r] of glyphPts) if (gx + r > x0 && gx - r < x1 && gy + r > y0 && gy - r < y1) hits++;
-        const score = land * 10 + hits * 4 + i * 0.15 + (d - 70) * 0.04;
+        let cross = 0;
+        if (lines) {
+          cross = crossings(ax, ay, c.tx, c.ty, lines);
+          for (const [lx0, ly0, lx1, ly1] of lines) {
+            const mx = (lx0 + lx1) / 2;
+            const my = (ly0 + ly1) / 2;
+            if (mx > x0 && mx < x1 && my > y0 && my < y1) cross += 0.5;
+          }
+        }
+        const score = land * 10 + hits * 4 + cross * 3 + i * 0.15 + (d - dists[0]) * 0.04;
         if (score < bestScore) {
           bestScore = score;
           best = c;
@@ -331,7 +352,7 @@ export function createChart(deps: ChartDeps) {
       const h = lineH();
       const x0 = anchor === 'middle' ? x - w / 2 : x;
       const box = [x0 - 2, y - h, x0 + w + 2, y + 3];
-      if (box[0] < 2 || box[2] > f.width - 2 || taken.some((b) => overlaps(b, box))) return;
+      if (box[0] < 2 || box[1] < 4 || box[2] > f.width - 2 || taken.some((b) => overlaps(b, box))) return;
       taken.push(box);
       const e = gratLabel(li++);
       e.textContent = txt;
@@ -413,11 +434,18 @@ export function createChart(deps: ChartDeps) {
 
     // 70 % circles, labelled with their hours at the bottom edge.
     const marks: number[][] = [];
+    /** Screen segments of the track and the 70 % circles, which the place's note keeps off. */
+    const lines: number[][] = [];
     const ringPts: number[][] = [];
     for (const c of cones) {
       ringPts.length = 0;
       c.path.setAttribute('d', polyline(c.ring, ringPts));
       for (const [x, y] of ringPts) if (!Number.isNaN(x)) marks.push([x - 3, y - 3, x + 3, y + 3]);
+      for (let k = 1; k < ringPts.length; k++) {
+        const [x0, y0] = ringPts[k - 1];
+        const [x1, y1] = ringPts[k];
+        if (!Number.isNaN(x0) && !Number.isNaN(x1)) lines.push([x0, y0, x1, y1]);
+      }
       if (deps.surface(c.edge.lat, c.edge.lon, pt)) {
         c.lab.style.display = '';
         c.lab.setAttribute('x', String(f1(pt[0])));
@@ -472,7 +500,12 @@ export function createChart(deps: ChartDeps) {
     gaps.sort((a, b) => a - b);
     scale = glyphScale(gaps.length ? gaps[Math.floor(gaps.length * 0.15)] : 0);
     const glyphPts: number[][] = [];
+    let lastOn: (typeof glyphs)[number] | null = null;
     for (const g of glyphs) {
+      if (g.on) {
+        if (lastOn) lines.push([lastOn.x, lastOn.y, g.x, g.y]);
+        lastOn = g;
+      }
       if (g.on) {
         const r = glyphRadius(g.level, scale);
         if (Math.abs(r - g.r) > 0.05) {
@@ -493,30 +526,10 @@ export function createChart(deps: ChartDeps) {
       if (deps.surface(mid.lat, mid.lon, pt) && deps.surface(q.lat, q.lon, pt2)) pxPerKm = Math.hypot(pt2[0] - pt[0], pt2[1] - pt[1]) / 200;
     }
 
-    // Province dots (full mode).
-    gProv.style.display = f.full ? '' : 'none';
-    if (f.full) {
-      for (const { p, c } of provDots) {
-        const on = deps.surface(p.lat, p.lon, pt);
-        c.style.display = on ? '' : 'none';
-        if (on) {
-          c.setAttribute('cx', String(f1(pt[0])));
-          c.setAttribute('cy', String(f1(pt[1])));
-        }
-      }
-    }
-
-    // Notes: only once the camera has settled.
+    // Notes: only once the camera has settled. The place's note goes first, so it gets the open sea nearest
+    // the place; the storm's note then finds room round the storm.
     const showNotes = f.settled;
-    if (showNotes && s && deps.surface(s.lat, s.lon, pt) && pt[0] >= 0 && pt[0] <= f.width && pt[1] >= 0 && pt[1] <= f.height) {
-      const lv = windLevel(s.windKt);
-      setNote(stormNote, t('marker.storm'), lv === null ? vnTime(f.timeMs) : `${vnTime(f.timeMs)} · ${t('map.level', { n: lv })}`);
-      // The note sits in open sea, clear of the wind area it describes.
-      const avoid = windBox ? [...taken, windBox] : taken;
-      if (placeNoteAt(stormNote, pt[0], pt[1], f, avoid, glyphPts)) taken.push(stormNote.box!);
-    } else stormNote.g.style.display = 'none';
     placeNoted = false;
-    if (windBox) taken.push(windBox);
     const pl = f.place;
     if (showNotes && pl && deps.surface(pl.lat, pl.lon, pt2) && pt2[0] >= 0 && pt2[0] <= f.width && pt2[1] >= 0 && pt2[1] <= f.height) {
       const key = `${pl.lat},${pl.lon}`;
@@ -527,16 +540,32 @@ export function createChart(deps: ChartDeps) {
         placeVerdict.set(key, detail);
       }
       setNote(placeNote, pl.label ?? '', detail);
-      placeNoted = placeNoteAt(placeNote, pt2[0], pt2[1], f, taken, glyphPts);
+      const stormBox: number[][] = [];
+      if (s && deps.surface(s.lat, s.lon, pt)) stormBox.push([pt[0] - 16, pt[1] - 16, pt[0] + 16, pt[1] + 16]);
+      placeNoted = fitNote(placeNote, pt2[0], pt2[1], f, [...taken, ...stormBox, ...(windBox ? [windBox] : [])], glyphPts, PLACE_DISTS, lines);
       if (placeNoted) taken.push(placeNote.box!);
     } else placeNote.g.style.display = 'none';
+    if (showNotes && s && deps.surface(s.lat, s.lon, pt) && pt[0] >= 0 && pt[0] <= f.width && pt[1] >= 0 && pt[1] <= f.height) {
+      const lv = windLevel(s.windKt);
+      setNote(stormNote, t('marker.storm'), lv === null ? vnTime(f.timeMs) : `${vnTime(f.timeMs)} · ${t('map.level', { n: lv })}`);
+      // The note sits in open sea, clear of the wind area it describes.
+      const avoid = windBox ? [...taken, windBox] : taken;
+      if (fitNote(stormNote, pt[0], pt[1], f, avoid, glyphPts, STORM_DISTS, null)) taken.push(stormNote.box!);
+    } else stormNote.g.style.display = 'none';
 
-    // Date labels beside their dots, on the side away from land, never over another label.
+    // Date labels, one every 24 h (DESIGN 2): all on one side of the track (left of travel, south on this
+    // westward track) at one fixed gap from the dot, switching side only where that side is land and the other
+    // is sea. A label that would collide moves out along the same line with a short hairline leader; it is never
+    // dropped. The label at the selected time is left to the storm's note, which carries that time.
+    let side = 1;
     for (let i = 0; i < glyphs.length; i++) {
       const g = glyphs[i];
       if (!g.label) continue;
-      if (!g.on) {
+      const lead = g.lead!;
+      const atNote = stormNote.g.style.display !== 'none' && Math.abs(Date.parse(g.p.t) - f.timeMs) < 3 * 3600 * 1000;
+      if (!g.on || atNote) {
         g.label.style.display = 'none';
+        lead.style.display = 'none';
         continue;
       }
       if (!g.lw) {
@@ -558,67 +587,99 @@ export function createChart(deps: ChartDeps) {
       const n = Math.hypot(tx, ty) || 1;
       tx /= n;
       ty /= n;
-      let placed = false;
-      const sides = [
-        [-ty, tx],
-        [ty, -tx],
-      ];
-      // Prefer the side whose label centre is over sea.
-      sides.sort((p, q) => seaScore(g, p) - seaScore(g, q));
-      for (const [nx, ny] of sides) {
-        const off = g.r + 5;
-        const cx = g.x + nx * (off + g.lw / 2);
-        const cy = g.y + ny * (off + g.lh / 2);
-        const box = [cx - g.lw / 2 - 1, cy - g.lh / 2, cx + g.lw / 2 + 1, cy + g.lh / 2];
-        if (box[0] < 2 || box[1] < 2 || box[2] > f.width - 2 || box[3] > f.height - 2) continue;
-        if (taken.some((t) => overlaps(t, box))) continue;
-        if (glyphPts.some(([x, y, r]) => x + r > box[0] && x - r < box[2] && y + r > box[1] && y - r < box[3])) continue;
-        taken.push(box);
-        g.label.setAttribute('x', String(f1(cx)));
-        g.label.setAttribute('y', String(f1(cy + g.lh * 0.32)));
-        placed = true;
-        break;
+      // Left of travel on screen (y down).
+      const left = [ty, -tx];
+      const right = [-ty, tx];
+      const landL = seaScore(g, left);
+      const landR = seaScore(g, right);
+      if (landL !== landR) side = landL < landR ? 1 : -1;
+      const order = side === 1 ? [left, right] : [right, left];
+      const gap = g.r + 4;
+      type Spot = { cx: number; cy: number; extra: number; nx: number; ny: number };
+      let placed: Spot | null = null;
+      let fallback: Spot | null = null;
+      for (const [nx, ny] of order) {
+        for (const extra of [0, 12, 20]) {
+          const ext = Math.abs(nx) * (g.lw / 2) + Math.abs(ny) * (g.lh / 2);
+          const cx = g.x + nx * (gap + extra + ext);
+          const cy = g.y + ny * (gap + extra + ext);
+          const box = [cx - g.lw / 2 - 1, cy - g.lh / 2, cx + g.lw / 2 + 1, cy + g.lh / 2];
+          if (box[0] < 2 || box[1] < 2 || box[2] > f.width - 2 || box[3] > f.height - 2) continue;
+          const cand = { cx, cy, extra, nx, ny };
+          if (!fallback && nx === order[0][0] && ny === order[0][1] && extra === 20) fallback = cand;
+          if (taken.some((t) => overlaps(t, box))) continue;
+          if (glyphPts.some(([x, y, r]) => x + r > box[0] && x - r < box[2] && y + r > box[1] && y - r < box[3])) continue;
+          placed = cand;
+          break;
+        }
+        if (placed) break;
       }
-      g.label.style.display = placed ? '' : 'none';
+      placed ??= fallback;
+      if (!placed) {
+        g.label.style.display = 'none';
+        lead.style.display = 'none';
+        continue;
+      }
+      const { cx, cy, extra, nx, ny } = placed;
+      taken.push([cx - g.lw / 2 - 1, cy - g.lh / 2, cx + g.lw / 2 + 1, cy + g.lh / 2]);
+      g.label.style.display = '';
+      g.label.setAttribute('x', String(f1(cx)));
+      g.label.setAttribute('y', String(f1(cy + g.lh * 0.32)));
+      if (extra > 0) {
+        const r0 = g.r + 1.5;
+        const r1 = gap + extra - 2;
+        lead.setAttribute('d', `M${f1(g.x + nx * r0)},${f1(g.y + ny * r0)}L${f1(g.x + nx * r1)},${f1(g.y + ny * r1)}`);
+        lead.style.display = '';
+      } else lead.style.display = 'none';
     }
     lastTaken = taken.concat(marks);
   }
 
-  function seaScore(g: { x: number; y: number; r: number; lw: number }, [nx, ny]: number[]): number {
-    const ll = deps.pick(g.x + nx * (g.r + 5 + g.lw / 2), g.y + ny * (g.r + 10));
+  /** 1 when the label centre on that side of the dot is over land. */
+  function seaScore(g: { x: number; y: number; r: number; lw: number; lh: number }, [nx, ny]: number[]): number {
+    const ext = Math.abs(nx) * (g.lw / 2) + Math.abs(ny) * (g.lh / 2);
+    const ll = deps.pick(g.x + nx * (g.r + 4 + ext), g.y + ny * (g.r + 4 + ext));
     return ll && deps.isLand(ll.lat, ll.lon) ? 1 : 0;
   }
 
-  function placeNoteAt(n: Note, ax: number, ay: number, f: ChartFrame, taken: number[][], glyphPts: number[][]): boolean {
-    return fitNote(n, ax, ay, f, taken, glyphPts);
-  }
-
   /**
-   * Satellite view (DESIGN 5): a dotted reference circle for the geostationary orbit, drawn round the Earth's
-   * disc through the satellite (a diagram, not to scale), and a measured span with end ticks from the Earth's
-   * surface to the satellite, labelled with the altitude along it.
+   * Satellite view (DESIGN 5): the geostationary orbit itself, drawn dotted through the model in the same
+   * perspective as the globe (so its geometry is the real one, not a diagram circle), and a measure from the
+   * Earth's surface to the satellite labelled with the altitude. Seen from just behind the satellite, that
+   * distance runs almost along the line of sight, so the drawn line is far shorter than the real distance:
+   * it carries a break mark (two short slashes) so its length does not read as a scale.
    */
   const disc = [0, 0, 0];
+  const SAT_LON = 128.2;
   function updateOrbit(f: ChartFrame): void {
     deps.earth(disc);
     const [cx, cy, er] = disc;
-    if (!deps.orbit(128.2, pt) || !(er > 0)) {
+    const hide = () => {
       orbitPath.setAttribute('d', '');
       dimPath.setAttribute('d', '');
       orbitLab.style.display = 'none';
-      return;
-    }
+    };
+    if (!deps.orbit(SAT_LON, pt) || !(er > 0)) return hide();
     const sx = pt[0];
     const sy = pt[1];
+    // The orbit, every half degree of longitude either side of the satellite, broken where it is hidden.
+    let od = '';
+    let pen = false;
+    for (let k = -100; k <= 100; k += 0.5) {
+      const on = deps.orbit(SAT_LON + k, pt2) && pt2[0] > -f.width && pt2[0] < 2 * f.width && pt2[1] > -f.height && pt2[1] < 2 * f.height;
+      if (on) {
+        od += `${pen ? 'L' : 'M'}${f1(pt2[0])},${f1(pt2[1])}`;
+        pen = true;
+      } else pen = false;
+    }
+    orbitPath.setAttribute('d', od);
     const R = Math.hypot(sx - cx, sy - cy);
     if (R < er + 40) {
-      orbitPath.setAttribute('d', '');
       dimPath.setAttribute('d', '');
       orbitLab.style.display = 'none';
       return;
     }
-    orbitPath.setAttribute('d', `M${f1(cx - R)},${f1(cy)}a${f1(R)},${f1(R)} 0 1,0 ${f1(2 * R)},0a${f1(R)},${f1(R)} 0 1,0 ${f1(-2 * R)},0`);
-    // The span: from the surface towards the satellite, stopping short of the model's ring.
+    // The measure: from the surface towards the satellite, stopping short of the model's ring.
     const ux = (sx - cx) / R;
     const uy = (sy - cy) / R;
     const a0 = er + 3;
@@ -628,21 +689,43 @@ export function createChart(deps: ChartDeps) {
     const x1 = cx + ux * a1;
     const y1 = cy + uy * a1;
     const tk = 5;
+    // The break: a gap in the middle with two parallel slashes across it.
+    const am = (a0 + a1) / 2;
+    const g0 = am - 3;
+    const g1 = am + 3;
+    const px = -uy;
+    const py = ux;
+    const slash = (at: number) => {
+      const mx = cx + ux * at;
+      const my = cy + uy * at;
+      // Slanted 30 degrees off the perpendicular.
+      const sx2 = px * 0.87 + ux * 0.5;
+      const sy2 = py * 0.87 + uy * 0.5;
+      return `M${f1(mx - sx2 * 6)},${f1(my - sy2 * 6)}L${f1(mx + sx2 * 6)},${f1(my + sy2 * 6)}`;
+    };
     dimPath.setAttribute(
       'd',
-      `M${f1(x0)},${f1(y0)}L${f1(x1)},${f1(y1)}` +
-        `M${f1(x0 - uy * tk)},${f1(y0 + ux * tk)}L${f1(x0 + uy * tk)},${f1(y0 - ux * tk)}` +
-        `M${f1(x1 - uy * tk)},${f1(y1 + ux * tk)}L${f1(x1 + uy * tk)},${f1(y1 - ux * tk)}`,
+      `M${f1(x0)},${f1(y0)}L${f1(cx + ux * g0)},${f1(cy + uy * g0)}M${f1(cx + ux * g1)},${f1(cy + uy * g1)}L${f1(x1)},${f1(y1)}` +
+        slash(g0) +
+        slash(g1) +
+        `M${f1(x0 - px * tk)},${f1(y0 - py * tk)}L${f1(x0 + px * tk)},${f1(y0 + py * tk)}` +
+        `M${f1(x1 - px * tk)},${f1(y1 - py * tk)}L${f1(x1 + px * tk)},${f1(y1 + py * tk)}`,
     );
-    // Label along the span, upright, set just beside the line in its own frame.
-    let ang = Math.atan2(uy, ux) / RAD;
-    if (ang > 90) ang -= 180;
-    if (ang < -90) ang += 180;
+    // Label upright and horizontal, beside the middle of the measure, clear of the line itself.
     orbitLab.style.display = '';
-    orbitLab.setAttribute('x', '0');
-    orbitLab.setAttribute('y', '-9');
-    orbitLab.setAttribute('transform', `translate(${f1((x0 + x1) / 2)},${f1((y0 + y1) / 2)}) rotate(${f1(ang)})`);
-    void f;
+    orbitLab.removeAttribute('transform');
+    const lh = lineH();
+    const w = orbitLab.textContent!.length * charW() * 1.15;
+    const mx = cx + ux * am;
+    const my = cy + uy * am;
+    // The side below the line on screen: the model's solar wing rises above the satellite, and its name sits
+    // beside or above it.
+    const sgn = py >= 0 ? 1 : -1;
+    const off = 12 + Math.abs(px * sgn) * (w / 2) + Math.abs(py) * lh * 0.6;
+    const lx = mx + px * sgn * off;
+    const ly = my + py * sgn * off;
+    orbitLab.setAttribute('x', String(f1(lx)));
+    orbitLab.setAttribute('y', String(f1(ly + lh * 0.35)));
   }
 
   let lastTaken: number[][] = [];

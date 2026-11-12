@@ -43,16 +43,16 @@ const panelMain = h(
   stormSummary(),
   checkBlock(store, actions),
   verdictCard(store, actions),
-  timelineList(actions),
+  timelineList(store, actions),
   learnBlock(store),
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
 
-// Desktop: the key sits on the map, in the open sea north-east of the track. Phone: it folds under the map,
-// at the end of the panel, so the check button and the verdict keep the first screen.
+// Desktop: the key sits on the map, in the open sea at the lower right. Phone: it folds under the map, at the
+// top of the panel, so the reader meets the key before the controls (DESIGN 2).
 const placeKey = (wide: boolean) => {
   if (wide) globeBottom.append(key.el);
-  else panelMain.append(key.el);
+  else panelMain.prepend(key.el);
 };
 try {
   const wideMq = window.matchMedia('(min-width: 900px)');
@@ -94,8 +94,11 @@ loadGlobe({
   provinces: PROVINCES,
   reducedMotion,
   labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), satName: t('marker.satName') },
-  covers: () => [demoLabel, usui.sheet],
-  avoid: () => [key.el],
+  // On a desktop the key counts as a cover on the map, so the chart is framed above it. On a phone it is in the
+  // panel, outside the map (and once the panel scrolls, its box can lie beside the map's rows).
+  covers: () => [demoLabel, usui.sheet, ...(globeBottom.contains(key.el) ? [key.el] : [])],
+  avoid: () => [],
+  frameAround: key.el,
   onMetrics: (m) => key.setMetrics(m),
 })
   .then((g) => {

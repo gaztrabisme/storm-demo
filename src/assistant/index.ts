@@ -50,8 +50,24 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     if (warning.hidden) return;
     const hadFocus = warning.contains(document.activeElement);
     warning.hidden = true;
+    syncFoot();
     if (hadFocus) avatar.focus({ preventScroll: true });
   };
+  /**
+   * While the warning shows, the page keeps a strip of ground at the bottom (under the panel) that holds the
+   * bubble and the portrait, so the bubble never sits on the verdict it follows (styles.css, --foot-h).
+   */
+  const syncFoot = () => {
+    const root = document.documentElement;
+    if (warning.hidden) {
+      root.style.removeProperty('--foot-h');
+      root.classList.remove('has-foot');
+      return;
+    }
+    root.style.setProperty('--foot-h', `${Math.max(88, Math.ceil(warning.offsetHeight) + 24)}px`);
+    root.classList.add('has-foot');
+  };
+  new ResizeObserver(() => syncFoot()).observe(warning);
 
   // ---- Question sheet.
   const answer = h('div', { test: 'assistant-answer', class: 'assistant-answer', 'aria-live': 'polite', hidden: true });
@@ -188,6 +204,7 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
       warned = true;
       warningText.textContent = t('assistant.warning', { place: s.place.label, firstInside: vnTime(s.verdict.firstInside) });
       warning.hidden = false;
+      syncFoot();
       logEvent('assistant_warning_shown');
     }
   });
