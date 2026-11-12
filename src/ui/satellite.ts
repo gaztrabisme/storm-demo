@@ -28,7 +28,9 @@ export function satelliteInfo(store: Store, actions: Actions): HTMLElement {
     } else {
       const to = shown(opener) ? opener : document.querySelector<HTMLElement>('[data-test="btn-source"]');
       opener = null;
-      if (el.contains(document.activeElement) || document.activeElement === document.body) to?.focus({ preventScroll: true });
+      // Also from the 3D view itself ([satellite], focused for the arrow keys), which hides as the view closes.
+      const a = document.activeElement;
+      if (el.contains(a) || a === document.body || a?.closest('[data-test="satellite"]')) to?.focus({ preventScroll: true });
     }
   });
   return el;

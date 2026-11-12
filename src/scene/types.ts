@@ -2,6 +2,7 @@
 // three.js lives behind the lazy import in scene/index.ts.
 import type { ConeCircle, LatLon, Province, Track } from '../storm/verdict';
 import type { Mode } from '../state';
+import type { HudStrings } from './hud';
 
 export interface GlobeInit {
   /** The [data-test="globe"] element. The controller adds its canvas and the DOM overlays inside it. */
@@ -16,7 +17,7 @@ export interface GlobeInit {
   /** Read at the start of each satellite flight: true turns it into a cut. */
   reducedMotion(): boolean;
   /** Accessible names for the overlays. */
-  labels: { storm: string; pin: string; satellite: string; satName: string };
+  labels: { storm: string; pin: string; satellite: string; hud: HudStrings };
   /**
    * Elements that stay over the globe for a layout (the demo label, the key on a desktop). Read when the layout
    * changes, so the fixed map view frames the track and Vietnam in the part of the globe they leave open; province
@@ -47,8 +48,10 @@ export interface GlobeController {
   setPlace(place: (LatLon & { label?: string }) | null): void;
   /** Highlight the storm marker for a few seconds (the `where` chip); no camera move. */
   highlightStorm(): void;
-  /** Fly out to the GK-2A satellite (1 s, a cut under reduced motion). */
+  /** Fly out to the GK-2A close-up (0.82 s, a cut under reduced motion). */
   showSatellite(): void;
+  /** The close-up camera (SPEC 6.7): yaw and pitch in radians, zoom as a share of the arrival distance. */
+  satellite(): { yaw: number; pitch: number; zoom: number };
   /** Fly back to the fixed map view. */
   back(): void;
   dispose(): void;

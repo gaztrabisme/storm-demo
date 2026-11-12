@@ -198,8 +198,7 @@
   "marker": {
     "storm": "Tâm bão",
     "pin": "Nơi bạn chọn",
-    "satellite": "Vệ tinh GK-2A",
-    "satName": "GK-2A"
+    "satellite": "Vệ tinh GK-2A"
   },
   "assistant": {
     "avatar": "Hỏi Usui-chan",
@@ -229,7 +228,6 @@
     "past": "Đã đi qua",
     "forecast": "Dự báo",
     "level": "cấp {n}",
-    "hours": "{h} giờ",
-    "orbit": "{km} km"
+    "hours": "{h} giờ"
   }
 }

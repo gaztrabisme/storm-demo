@@ -6,8 +6,9 @@ import type { Mode } from '../state';
 import type { CreateGlobe, GlobeController, GlobeInit } from './types';
 import { createChart } from './chart';
 import { CHART_AREA, chartAreaTexture, landMask, patchGeometry, regionGeometry, regionTexture, worldTexture } from './coast';
-import { EARTH } from './colors';
+import { EARTH, SCENE } from './colors';
 import { startFrameLoop } from './frameLoop';
+import { createHud, PART_ORDER, type HudFrame } from './hud';
 import { buildSatellite } from './satellite';
 import './scene.css';
 
@@ -18,13 +19,34 @@ const SAT_LAT = 0;
 const SAT_LON = 128.2;
 
 /** Satellite flight duration (ms), out and back. SPEC 6.7 sets 0.8-1.2 s; the map itself never moves (SPEC 6.2). */
-const FLY_SAT_MS = 900;
+const FLY_SAT_MS = 820;
 
 /**
- * Camera for the satellite view: about 42,700 km from Earth's centre, just behind GK-2A and north-west of it,
- * far enough off its line of sight that the model is drawn clear of the Earth's edge.
+ * The satellite close-up (SPEC 6.7): the camera orbits the model. yaw turns about the model's north axis (0 is
+ * straight behind it, on the side away from the Earth, so the Earth is a disc behind the model), pitch raises the
+ * camera towards north. The arrival angle shows the model a little from the side, the Earth's disc beside it.
  */
-const SAT_CAM = { lat: 0.15, lon: 128.05, dist: 42700 / EARTH_KM };
+const YAW0 = 0.3;
+const PITCH0 = 0.12;
+const PITCH_MAX = 1.2;
+/** Zoom is the camera distance as a share of the arrival distance (SPEC 6.7: 0.6x to 2x). */
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 2;
+/** The model's larger side on screen at arrival, as a share of the view's shorter side ("about half"). */
+const ARRIVAL_FILL = 0.5;
+/** The slow automatic turn, in radians per second, and the pause after input before it starts again (ms). */
+const AUTO_TURN = 1 * (Math.PI / 180);
+const AUTO_PAUSE_MS = 1000;
+const AUTO_FRAME_MS = 100;
+/** Drag and key steps (radians per pixel, radians per key press). */
+const DRAG_RAD = 0.005;
+const KEY_YAW = 0.1;
+const KEY_PITCH = 0.08;
+/**
+ * How dim the Earth is in the satellite view: the texture colour multiplier (linear light) per theme, so the paper
+ * chart and the night screen both end as a dim disc on space.
+ */
+const EARTH_DIM = { light: 0.1, dark: 0.8 } as const;
 
 /** Unit vector (times r) for (lat, lon). */
 function vec(lat: number, lon: number, r = 1, out = new THREE.Vector3()): THREE.Vector3 {
@@ -39,8 +61,6 @@ interface Cam {
   dist: number;
 }
 
-const copyCam = (c: Cam): Cam => ({ lat: c.lat, lon: c.lon, dist: c.dist });
-
 export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const { container, track, nowMs } = init;
   let mode: Mode = init.mode;
@@ -54,8 +74,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   renderer.setPixelRatio(basePixelRatio);
   /**
-   * The satellite flights (1 s) draw their fast part at half resolution, so a slow device keeps up with the
-   * frames; the full resolution comes back for the slow end of the flight.
+   * The satellite flights draw at half resolution, so a slow device keeps up with the frames; the full
+   * resolution comes back for the slow end of the flight out, and on landing on the way back.
    */
   function flightResolution(on: boolean): void {
     const r = on ? basePixelRatio / 2 : basePixelRatio;
@@ -101,6 +121,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     areaMat.map = tx.area;
     regionMat.map = tx.region;
     earthMat.needsUpdate = areaMat.needsUpdate = regionMat.needsUpdate = true;
+    dimK = -1;
     markDirty();
   }
   let markDirty = (): void => {};
@@ -165,10 +186,72 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   // GK-2A at 0° N, 128.2° E, 35,786 km above the surface (SPEC 6.7).
   const satR = (EARTH_KM + GEO_ALT_KM) / EARTH_KM;
   const satWorld = vec(SAT_LAT, SAT_LON, satR);
-  const sat = buildSatellite();
+  const satModel = buildSatellite();
+  const sat = satModel.group;
   sat.position.copy(satWorld);
   sat.lookAt(0, 0, 0);
   scene.add(sat);
+  sat.updateMatrixWorld(true);
+  // The satellite never moves, so its points, part anchors and face normals are kept in world space.
+  const satPts = satModel.points.slice();
+  {
+    const v = new THREE.Vector3();
+    for (let i = 0; i < satPts.length; i += 3) {
+      v.set(satPts[i], satPts[i + 1], satPts[i + 2]).applyMatrix4(sat.matrixWorld);
+      satPts[i] = v.x;
+      satPts[i + 1] = v.y;
+      satPts[i + 2] = v.z;
+    }
+  }
+  // The geostationary orbit through the model (DESIGN 5), as screen-sized dots in the scene, so the Earth hides
+  // its far side. The dots are spaced in proportion to their distance from the satellite, so near the model and
+  // far round the Earth they sit a few pixels apart on screen alike.
+  const orbitDots = (() => {
+    const pos: number[] = [];
+    const lon0 = SAT_LON * RAD;
+    const at = (a: number) => pos.push(Math.cos(lon0 + a) * satR, 0, -Math.sin(lon0 + a) * satR);
+    for (const sgn of [1, -1]) {
+      let a = sgn > 0 ? 0 : -0.00004;
+      while (Math.abs(a) < Math.PI) {
+        at(a);
+        const d = 2 * satR * Math.sin(Math.abs(a) / 2);
+        a += (sgn * Math.max(0.0007, 0.008 * d)) / satR;
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    // Round dots: a small disc as the point sprite.
+    const dot = document.createElement('canvas');
+    dot.width = dot.height = 16;
+    const g2 = dot.getContext('2d');
+    if (g2) {
+      g2.fillStyle = '#fff';
+      g2.beginPath();
+      g2.arc(8, 8, 7, 0, Math.PI * 2);
+      g2.fill();
+    }
+    const mat = new THREE.PointsMaterial({ color: SCENE.satInk, map: new THREE.CanvasTexture(dot), size: 2 * basePixelRatio, sizeAttenuation: false, transparent: true, opacity: 0.8, alphaTest: 0.3, depthWrite: false });
+    const pts = new THREE.Points(geo, mat);
+    pts.visible = false;
+    pts.frustumCulled = false;
+    scene.add(pts);
+    return pts;
+  })();
+  /** The middle of the model's extent: the close-up camera looks at it and turns round it. */
+  const satCenter = new THREE.Vector3();
+  {
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < satPts.length; i++) {
+      lo[i % 3] = Math.min(lo[i % 3], satPts[i]);
+      hi[i % 3] = Math.max(hi[i % 3], satPts[i]);
+    }
+    satCenter.set((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
+  }
+  const partWorld = PART_ORDER.map((k) => {
+    const p = satModel.parts.find((x) => x.key === k)!;
+    return { anchor: p.anchor.clone().applyMatrix4(sat.matrixWorld), normal: p.normal ? p.normal.clone().applyQuaternion(sat.quaternion) : null };
+  });
 
   // DOM overlays the tests read (tests/README.md, "How the scripts read the page").
   const overlay = (test: string, cls: string, label: string) => {
@@ -184,20 +267,14 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const stormEl = overlay('storm-marker', 'globe__storm', init.labels.storm);
   const pinEl = overlay('place-pin', 'globe__pin', init.labels.pin);
   const satEl = overlay('satellite-model', 'globe__sat', init.labels.satellite);
-  // The place's name beside the pin, and "GK-2A" on a leader line pointing away from the Earth.
+  // The place's name beside the pin.
   const pinName = document.createElement('span');
   pinName.className = 'globe__pin-name';
   pinName.setAttribute('aria-hidden', 'true');
   pinEl.append(pinName);
   let pinNameW = -1;
-  const satLead = document.createElement('span');
-  satLead.className = 'globe__sat-lead';
-  const satName = document.createElement('span');
-  satName.className = 'globe__sat-name';
-  satName.setAttribute('aria-hidden', 'true');
-  satName.textContent = init.labels.satName;
-  satEl.append(satLead, satName);
-  let satDir = [NaN, NaN];
+  // The close-up's HUD and [satellite], the view that takes focus for the arrow keys.
+  const hud = createHud(container, init.labels.hud, init.labels.satellite);
 
   // ---------------------------------------------------------------- What covers the globe
   /** Boxes (x0, y0, x1, y1, container pixels) of the given elements where they are shown over the canvas. */
@@ -332,59 +409,48 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
 
   /** The fixed map view for the current layout; the satellite trip returns to it. */
   let home: Cam = homeCam();
-  let cam: Cam = copyCam(home);
   /** The layout changed while the satellite view was open: the map view is worked out again on the way back. */
   let homeStale = false;
 
-  // Flight, after AstroSphere src/scene/flight/flightView.ts (step): smoothstep progress, distance changing
-  // geometrically (log-linear), direction slerped, camera rotation slerped over the first third.
-  const flight = {
-    on: false,
-    t0: 0,
-    ms: 1,
-    from: { lat: 0, lon: 0, dist: 1 } as Cam,
-    to: { lat: 0, lon: 0, dist: 1 } as Cam,
-    dir0: new THREE.Vector3(),
-    dir1: new THREE.Vector3(),
-    q0: new THREE.Quaternion(),
-    done: null as null | (() => void),
-  };
-  const fDir = new THREE.Vector3();
-  const qLook = new THREE.Quaternion();
-  const mLook = new THREE.Matrix4();
-  const ORIGIN = new THREE.Vector3();
-  const UP = new THREE.Vector3(0, 1, 0);
+  // ---------------------------------------------------------------- Satellite close-up
+  const close = { yaw: YAW0, pitch: PITCH0, zoom: 1, d0: 0.04, held: false, idleUntil: 0 };
+  const satOut = new THREE.Vector3(); // unit offset of the camera from the model, world space
+  /** Unit direction from the model to the close-up camera at (yaw, pitch), in world space. */
+  function closeDir(yaw: number, pitch: number, out: THREE.Vector3): THREE.Vector3 {
+    const c = Math.cos(pitch);
+    return out.set(c * Math.sin(yaw), Math.sin(pitch), -c * Math.cos(yaw)).applyQuaternion(sat.quaternion);
+  }
 
-  function fly(to: Cam, ms: number, done?: () => void): void {
+  // Trip between the map and the close-up, after AstroSphere src/scene/flight/flightView.ts (step): one number
+  // `trip` runs from 0 (the fixed map view) to 1 (the close-up), with smoothstep easing. Along it the point looked
+  // at moves from the Earth's centre to the model (over the first 60 %), the camera's direction from that point is
+  // slerped, and its distance changes geometrically, so the model grows steadily as the camera closes in.
+  let trip = 0;
+  const flight = { on: false, t0: 0, ms: 1, from: 0, to: 0, done: null as null | (() => void) };
+  const fDir = new THREE.Vector3();
+  const fA = new THREE.Vector3();
+  const fTarget = new THREE.Vector3();
+  const mLook = new THREE.Matrix4();
+  const UP = new THREE.Vector3(0, 1, 0);
+  const smooth = (t: number) => t * t * (3 - 2 * t);
+
+  function fly(to: 0 | 1, ms: number, done?: () => void): void {
     if (init.reducedMotion() || ms <= 0) {
       flight.on = false;
       flightResolution(false);
-      cam = copyCam(to);
+      trip = to;
       done?.();
-      loop.markDirty();
+      markDirty();
       return;
     }
-    if (flight.on) settleFlight();
     flight.on = true;
     flightResolution(true);
     flight.t0 = performance.now();
     flight.ms = ms;
-    flight.from = copyCam(cam);
-    flight.to = copyCam(to);
-    vec(cam.lat, cam.lon, 1, flight.dir0);
-    vec(to.lat, to.lon, 1, flight.dir1);
-    flight.q0.copy(camera.quaternion);
+    flight.from = trip;
+    flight.to = to;
     flight.done = done ?? null;
-    loop.markDirty();
-  }
-
-  /** Stop a flight where it is (user input, or a new flight starting). */
-  function settleFlight(): void {
-    if (!flight.on) return;
-    flight.on = false;
-    flightResolution(false);
-    const d = camera.position.length();
-    cam = { lat: Math.asin(camera.position.y / d) / RAD, lon: Math.atan2(-camera.position.z, camera.position.x) / RAD, dist: d };
+    markDirty();
   }
 
   function slerpDir(a: THREE.Vector3, b: THREE.Vector3, s: number, out: THREE.Vector3): THREE.Vector3 {
@@ -397,42 +463,130 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     return out.set(a.x * ka + b.x * kb, a.y * ka + b.y * kb, a.z * ka + b.z * kb).normalize();
   }
 
-  function lookAtOrigin(q: THREE.Quaternion): void {
-    mLook.lookAt(camera.position, ORIGIN, UP);
-    q.setFromRotationMatrix(mLook);
+  /** Camera pose at trip position k (0 map, 1 close-up). */
+  function pose(k: number): void {
+    const dClose = close.d0 * close.zoom;
+    closeDir(close.yaw, close.pitch, satOut);
+    if (k >= 1) {
+      fTarget.copy(satCenter);
+      camera.position.copy(satCenter).addScaledVector(satOut, dClose);
+    } else {
+      vec(home.lat, home.lon, 1, fA);
+      fTarget.copy(satCenter).multiplyScalar(smooth(Math.min(1, k / 0.6)));
+      slerpDir(fA, satOut, k, fDir);
+      camera.position.copy(fTarget).addScaledVector(fDir, home.dist * (dClose / home.dist) ** k);
+    }
+    mLook.lookAt(camera.position, fTarget, UP);
+    camera.quaternion.setFromRotationMatrix(mLook);
   }
 
-  /** Places the camera for this frame; true while a flight is in progress. */
-  function placeCamera(now: number): boolean {
+  /** Near plane close to the model in the close-up, the map's own on the map. */
+  function setNear(): void {
+    const near = Math.min(0.01, Math.max(0.0005, 0.25 * camera.position.distanceTo(satCenter)));
+    if (near !== camera.near) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  /** The Earth dims on the way out and comes back on the way back; the map patches hide in the close-up. */
+  let dimK = -1;
+  function setDim(): void {
+    const k = 1 - (1 - EARTH_DIM[ground ?? 'light']) * trip;
+    if (k === dimK) return;
+    dimK = k;
+    earthMat.color.setScalar(k);
+    areaMat.color.setScalar(k);
+    regionMat.color.setScalar(k);
+    areaMesh.visible = regionMesh.visible = trip < 0.6;
+    orbitDots.visible = trip > 0;
+  }
+
+  /** True when only the automatic turn moves the picture this frame (no flight, no input). */
+  let autoOnly = false;
+  let lastDraw = -Infinity;
+  /** Bumped by every input and request for a frame; a frame with a new value is always drawn. */
+  let inputSeq = 0;
+  let drawnSeq = -1;
+
+  /** Places the camera for this frame; true while it needs the next frame (a flight, the automatic turn). */
+  function placeCamera(now: number, dt: number): boolean {
+    let moving = false;
     if (flight.on) {
       const t = Math.min(1, Math.max(0, (now - flight.t0) / flight.ms));
-      const s = t * t * (3 - 2 * t);
-      // Full resolution again for the slow last fifth of the flight, so the landing is sharp.
-      flightResolution(t < 0.8);
-      const r = flight.from.dist * (flight.to.dist / flight.from.dist) ** s;
-      slerpDir(flight.dir0, flight.dir1, s, fDir);
-      camera.position.copy(fDir).multiplyScalar(r);
-      lookAtOrigin(qLook);
-      camera.quaternion.slerpQuaternions(flight.q0, qLook, Math.min(1, t * 3));
+      // Out: full resolution again for the slow last fifth, so the landing on the model is sharp. Back: half
+      // resolution to the end, because the last part fills the view with the Earth, the costly part to draw.
+      flightResolution(flight.to === 0 || t < 0.8);
+      trip = flight.from + (flight.to - flight.from) * smooth(t);
       if (t >= 1) {
         flight.on = false;
         flightResolution(false);
-        cam = copyCam(flight.to);
+        trip = flight.to;
         const done = flight.done;
         flight.done = null;
         done?.();
-      } else return true;
+      } else moving = true;
     }
-    vec(cam.lat, cam.lon, cam.dist, camera.position);
-    lookAtOrigin(camera.quaternion);
-    return false;
+    autoOnly = false;
+    if (!flight.on && satView && trip === 1 && !close.held && !init.reducedMotion()) {
+      if (now >= close.idleUntil) close.yaw += AUTO_TURN * dt;
+      autoOnly = !moving;
+      moving = true;
+    }
+    setDim();
+    pose(trip);
+    setNear();
+    return moving;
+  }
+
+  /** Arrival distance: the model's larger side fills ARRIVAL_FILL of the view's shorter side at zoom 1. */
+  const fitBox = new Float32Array(4);
+  function fitCloseDistance(): void {
+    let d = close.d0;
+    closeDir(YAW0, PITCH0, fA);
+    fitCamera.fov = camera.fov;
+    fitCamera.aspect = camera.aspect;
+    fitCamera.near = 0.0005;
+    fitCamera.updateProjectionMatrix();
+    for (let it = 0; it < 5; it++) {
+      fitCamera.position.copy(satCenter).addScaledVector(fA, d);
+      mLook.lookAt(fitCamera.position, satCenter, UP);
+      fitCamera.quaternion.setFromRotationMatrix(mLook);
+      fitCamera.updateMatrixWorld();
+      modelBox(fitCamera, fitBox);
+      const size = Math.max(fitBox[2] - fitBox[0], fitBox[3] - fitBox[1]);
+      if (!(size > 0)) break;
+      d *= size / (ARRIVAL_FILL * Math.min(width, height));
+    }
+    close.d0 = d;
+  }
+
+  /** The model's box on screen (x0, y0, x1, y1) for a camera, from every point of its drawing. */
+  function modelBox(cam: THREE.Camera, out: Float32Array): void {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (let i = 0; i < satPts.length; i += 3) {
+      proj.set(satPts[i], satPts[i + 1], satPts[i + 2]).project(cam);
+      const x = (proj.x * 0.5 + 0.5) * width;
+      const y = (-proj.y * 0.5 + 0.5) * height;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    out[0] = x0;
+    out[1] = y0;
+    out[2] = x1;
+    out[3] = y1;
   }
 
   // ---------------------------------------------------------------- Overlays
   const proj = new THREE.Vector3();
   const toCam = new THREE.Vector3();
   const camDir = new THREE.Vector3();
-  const last = { storm: [NaN, NaN], pin: [NaN, NaN], sat: [NaN, NaN] };
+  const last = { storm: [NaN, NaN], pin: [NaN, NaN], sat: [NaN, NaN, NaN, NaN] };
 
   /** Screen position of a world point, or false when it is hidden (behind the Earth, behind the camera, off the canvas). */
   function screen(world: THREE.Vector3, surface: boolean): boolean {
@@ -461,8 +615,46 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     camera.getWorldDirection(camDir);
     placeOverlay(stormEl, storm && !satView ? stormWorld : null, true, last.storm);
     placeOverlay(pinEl, place && !satView ? pinWorld : null, true, last.pin);
-    placeOverlay(satEl, satView ? satWorld : null, false, last.sat);
-    if (!satEl.hidden) placeSatName();
+    updateClose();
+  }
+
+  // The close-up's overlays: [satellite-model] over the model's box on screen, and the HUD.
+  const hudFrame: HudFrame = { width: 1, height: 1, box: new Float32Array(4), anchors: new Float32Array(PART_ORDER.length * 2), facing: new Uint8Array(PART_ORDER.length) };
+  function updateClose(): void {
+    const on = satView && !flight.on && trip === 1;
+    hud.show(on);
+    if (satEl.hidden === on) satEl.hidden = !on;
+    if (!on) return;
+    const box = hudFrame.box;
+    modelBox(camera, box);
+    const x0 = Math.round(box[0]);
+    const y0 = Math.round(box[1]);
+    const w = Math.round(box[2]) - x0;
+    const h = Math.round(box[3]) - y0;
+    const ls = last.sat;
+    if (x0 !== ls[0] || y0 !== ls[1]) {
+      ls[0] = x0;
+      ls[1] = y0;
+      satEl.style.transform = `translate(${x0}px, ${y0}px)`;
+    }
+    if (w !== ls[2] || h !== ls[3]) {
+      ls[2] = w;
+      ls[3] = h;
+      satEl.style.width = `${w}px`;
+      satEl.style.height = `${h}px`;
+    }
+    for (let i = 0; i < partWorld.length; i++) {
+      const p = partWorld[i];
+      proj.copy(p.anchor).project(camera);
+      hudFrame.anchors[i * 2] = (proj.x * 0.5 + 0.5) * width;
+      hudFrame.anchors[i * 2 + 1] = (-proj.y * 0.5 + 0.5) * height;
+      // A part faces away when the camera sees the back of the face its anchor is on (within about 80°).
+      toCam.copy(camera.position).sub(p.anchor);
+      hudFrame.facing[i] = !p.normal || p.normal.dot(toCam) > 0.17 * toCam.length() ? 1 : 0;
+    }
+    hudFrame.width = width;
+    hudFrame.height = height;
+    hud.frame(hudFrame);
   }
 
   // ---------------------------------------------------------------- Chart over the globe (scene/chart.ts)
@@ -484,32 +676,6 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       out[0] = (cv.x * 0.5 + 0.5) * width;
       out[1] = (-cv.y * 0.5 + 0.5) * height;
       return true;
-    },
-    orbit(lon, out) {
-      vec(0, lon, satR, cv);
-      // Hidden when the line from the camera to the point passes through the Earth.
-      cdir.copy(cv).sub(camera.position);
-      const L = cdir.length();
-      cdir.divideScalar(L);
-      const b = camera.position.dot(cdir);
-      const c = camera.position.lengthSq() - 1;
-      const disc = b * b - c;
-      if (disc > 0) {
-        const t0 = -b - Math.sqrt(disc);
-        if (t0 > 0 && t0 < L) return false;
-      }
-      cv.project(camera);
-      if (cv.z >= 1 || cv.z <= -1) return false;
-      out[0] = (cv.x * 0.5 + 0.5) * width;
-      out[1] = (-cv.y * 0.5 + 0.5) * height;
-      return true;
-    },
-    earth(out) {
-      proj.set(0, 0, 0).project(camera);
-      out[0] = (proj.x * 0.5 + 0.5) * width;
-      out[1] = (-proj.y * 0.5 + 0.5) * height;
-      const d = camera.position.length();
-      out[2] = d > 1 ? (Math.tan(Math.asin(1 / d)) / Math.tan((camera.fov / 2) * RAD)) * (height / 2) : 0;
     },
     pick(x, y) {
       cdir.set((x / width) * 2 - 1, -(y / height) * 2 + 1, 0.5).unproject(camera).sub(camera.position).normalize();
@@ -556,40 +722,6 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       pinName.hidden = named;
       pinNameW = -1;
     }
-  }
-
-  /** Leader line and "GK-2A" on the side of the model that points away from the Earth on screen. */
-  function placeSatName(): void {
-    const sx = last.sat[0];
-    const sy = last.sat[1];
-    proj.set(0, 0, 0).project(camera);
-    let ax = sx - (proj.x * 0.5 + 0.5) * width;
-    let ay = sy - (-proj.y * 0.5 + 0.5) * height;
-    const n = Math.hypot(ax, ay) || 1;
-    ax /= n;
-    ay /= n;
-    const r0 = 34;
-    const len = 26;
-    const w = satName.offsetWidth;
-    const h = satName.offsetHeight;
-    // Away from the Earth first; if the name would leave the canvas, straight down or up instead.
-    const sy0 = Math.sign(ay) || 1;
-    let dx = ax;
-    let dy = ay;
-    let reach = 0;
-    for (const [cx, cy] of [[ax, ay], [0, sy0], [0, -sy0], [-ax, ay]]) {
-      reach = r0 + len + 4 + Math.abs(cx) * (w / 2) + Math.abs(cy) * (h / 2);
-      const x = sx + cx * reach;
-      const y = sy + cy * reach;
-      dx = cx;
-      dy = cy;
-      if (x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h / 2 >= 4 && y + h / 2 <= height - 4) break;
-    }
-    if (Math.abs(dx - satDir[0]) < 0.01 && Math.abs(dy - satDir[1]) < 0.01) return;
-    satDir = [dx, dy];
-    satLead.style.width = `${len}px`;
-    satLead.style.transform = `translate(${32 + dx * r0}px, ${32 + dy * r0}px) rotate(${Math.atan2(dy, dx)}rad)`;
-    satName.style.transform = `translate(${32 + dx * reach - w / 2}px, ${32 + dy * reach - h / 2}px)`;
   }
 
   /** Province names in full mode. A label that would overlap one already placed is left out. */
@@ -673,8 +805,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   let drawn = false;
   const readyCbs: Array<() => void> = [];
 
-  const loop = startFrameLoop((now) => {
-    const moving = placeCamera(now);
+  const loop = startFrameLoop((now, dt) => {
+    const moving = placeCamera(now, dt);
+    // The automatic turn alone is drawn at most every AUTO_FRAME_MS: it is slow, and a slow device keeps its
+    // frames for the page.
+    if (autoOnly && drawn && inputSeq === drawnSeq && now - lastDraw < AUTO_FRAME_MS) return true;
+    lastDraw = now;
+    drawnSeq = inputSeq;
     renderer.render(scene, camera);
     updateOverlays();
     updateChart(!moving);
@@ -686,7 +823,10 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     }
     return moving;
   });
-  markDirty = () => loop.markDirty();
+  markDirty = () => {
+    inputSeq++;
+    loop.markDirty();
+  };
   applyGround();
   // Compile every material now, the satellite model's included, so the first flight out does not stall on it.
   renderer.compile(scene, camera);
@@ -698,12 +838,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       return;
     }
     home = homeCam();
-    if (!flight.on) cam = copyCam(home);
-    else {
-      flight.to = copyCam(home);
-      vec(home.lat, home.lon, 1, flight.dir1);
-    }
-    loop.markDirty();
+    markDirty();
   }
 
   function resize(): void {
@@ -713,10 +848,10 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     reframe();
+    fitCloseDistance();
     labelsMeasured = false;
     pinNameW = -1;
-    satDir = [NaN, NaN];
-    loop.markDirty();
+    markDirty();
   }
   const ro = new ResizeObserver(resize);
   ro.observe(container);
@@ -733,6 +868,98 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
 
   // No input on the map (SPEC 6.2): no drag, no wheel or pinch zoom. The globe's touch-action is none (styles.css),
   // so a pinch over it does not zoom the page either.
+  // In the close-up (SPEC 6.7): a drag (mouse or one finger) orbits the camera round the model, scroll or a pinch
+  // zooms between 0.6x and 2x of the arrival distance, and the arrow keys turn it while [satellite] has focus.
+  // Any press holds the automatic turn; it starts again AUTO_PAUSE_MS after the last input.
+  const closeLive = () => satView && !flight.on && trip === 1;
+  const ptrId = new Int32Array(2).fill(-1);
+  const ptrX = new Float32Array(2);
+  const ptrY = new Float32Array(2);
+  let pinchD = 0;
+  let pinchZoom = 1;
+  const nPtr = () => (ptrId[0] >= 0 ? 1 : 0) + (ptrId[1] >= 0 ? 1 : 0);
+  const pinchDist = () => Math.hypot(ptrX[0] - ptrX[1], ptrY[0] - ptrY[1]);
+  const setZoom = (z: number) => {
+    close.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  };
+  const turn = (dYaw: number, dPitch: number) => {
+    close.yaw += dYaw;
+    close.pitch = Math.min(PITCH_MAX, Math.max(-PITCH_MAX, close.pitch + dPitch));
+  };
+  const touched = () => {
+    close.idleUntil = performance.now() + AUTO_PAUSE_MS;
+    markDirty();
+  };
+  function onPointerDown(e: PointerEvent): void {
+    if (!closeLive()) return;
+    const slot = ptrId[0] < 0 ? 0 : ptrId[1] < 0 ? 1 : -1;
+    if (slot < 0) return;
+    ptrId[slot] = e.pointerId;
+    ptrX[slot] = e.clientX;
+    ptrY[slot] = e.clientY;
+    try {
+      container.setPointerCapture(e.pointerId);
+    } catch {
+      /* the pointer is already gone */
+    }
+    if (nPtr() === 2) {
+      pinchD = pinchDist();
+      pinchZoom = close.zoom;
+    }
+    close.held = true;
+    if (document.activeElement !== hud.root) hud.root.focus({ preventScroll: true });
+    touched();
+  }
+  function onPointerMove(e: PointerEvent): void {
+    const slot = ptrId[0] === e.pointerId ? 0 : ptrId[1] === e.pointerId ? 1 : -1;
+    if (slot < 0 || !closeLive()) return;
+    const dx = e.clientX - ptrX[slot];
+    const dy = e.clientY - ptrY[slot];
+    ptrX[slot] = e.clientX;
+    ptrY[slot] = e.clientY;
+    if (nPtr() === 2) {
+      const d = pinchDist();
+      if (pinchD > 0 && d > 0) setZoom(pinchZoom * (pinchD / d));
+    } else turn(-dx * DRAG_RAD, dy * DRAG_RAD);
+    touched();
+  }
+  function onPointerUp(e: PointerEvent): void {
+    const slot = ptrId[0] === e.pointerId ? 0 : ptrId[1] === e.pointerId ? 1 : -1;
+    if (slot < 0) return;
+    ptrId[slot] = -1;
+    if (slot === 0 && ptrId[1] >= 0) {
+      ptrId[0] = ptrId[1];
+      ptrX[0] = ptrX[1];
+      ptrY[0] = ptrY[1];
+      ptrId[1] = -1;
+    }
+    pinchD = 0;
+    if (nPtr() === 0) close.held = false;
+    touched();
+  }
+  function onWheel(e: WheelEvent): void {
+    if (!closeLive()) return;
+    e.preventDefault();
+    const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    setZoom(close.zoom * Math.exp(e.deltaY * k * 0.0015));
+    touched();
+  }
+  function onKey(e: KeyboardEvent): void {
+    if (!closeLive() || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowLeft') turn(KEY_YAW, 0);
+    else if (e.key === 'ArrowRight') turn(-KEY_YAW, 0);
+    else if (e.key === 'ArrowUp') turn(0, KEY_PITCH);
+    else if (e.key === 'ArrowDown') turn(0, -KEY_PITCH);
+    else return;
+    e.preventDefault();
+    touched();
+  }
+  container.addEventListener('pointerdown', onPointerDown);
+  container.addEventListener('pointermove', onPointerMove);
+  container.addEventListener('pointerup', onPointerUp);
+  container.addEventListener('pointercancel', onPointerUp);
+  container.addEventListener('wheel', onWheel, { passive: false });
+  hud.root.addEventListener('keydown', onKey);
   // The `where` chip's highlight on the storm marker (SPEC 6.4), cleared after a while.
   let highlightTimer = 0;
   updateStorm();
@@ -746,13 +973,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     setMode(m) {
       if (m === mode) return;
       mode = m;
-      loop.markDirty();
+      markDirty();
     },
     setTime(ms) {
       if (ms === timeMs) return;
       timeMs = ms;
       updateStorm();
-      loop.markDirty();
+      markDirty();
     },
     setPlace(p) {
       place = p ? { lat: p.lat, lon: p.lon, label: p.label } : null;
@@ -761,7 +988,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       // The pin's name for screen readers and the tests: the place's label ("Vị trí của bạn" for the own location).
       pinEl.setAttribute('aria-label', p?.label || init.labels.pin);
       pinNameW = -1;
-      loop.markDirty();
+      markDirty();
     },
     highlightStorm() {
       window.clearTimeout(highlightTimer);
@@ -771,7 +998,16 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     showSatellite() {
       if (satView) return;
       satView = true;
-      fly(SAT_CAM, FLY_SAT_MS);
+      close.yaw = YAW0;
+      close.pitch = PITCH0;
+      close.zoom = 1;
+      close.held = false;
+      ptrId.fill(-1);
+      close.idleUntil = 0;
+      fly(1, FLY_SAT_MS);
+    },
+    satellite() {
+      return { yaw: close.yaw, pitch: close.pitch, zoom: close.zoom };
     },
     back() {
       if (!satView) return;
@@ -780,12 +1016,18 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
         homeStale = false;
         home = homeCam();
       }
-      fly(home, FLY_SAT_MS);
+      fly(0, FLY_SAT_MS);
     },
     dispose() {
       window.clearTimeout(highlightTimer);
       ro.disconnect();
       frameRo.disconnect();
+      container.removeEventListener('pointerdown', onPointerDown);
+      container.removeEventListener('pointermove', onPointerMove);
+      container.removeEventListener('pointerup', onPointerUp);
+      container.removeEventListener('pointercancel', onPointerUp);
+      container.removeEventListener('wheel', onWheel);
+      hud.dispose();
       loop.dispose();
       renderer.dispose();
       themeObserver.disconnect();

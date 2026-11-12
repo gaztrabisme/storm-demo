@@ -1,8 +1,8 @@
 // The storm-track chart drawn over the globe (DESIGN 2): one SVG layer, redrawn on each globe frame from
 // screen projections the globe supplies. It holds the graticule with degree labels, the track line and its
 // glyphs (dot area proportional to the wind level), date labels every 24 h, the 70 % circles with their
-// hours, the wind area, two notes with curved leaders, and in the satellite view the
-// geostationary orbit. Colours come from the CSS tokens (styles.css), so the chart follows the theme.
+// hours, the wind area and two notes with curved leaders; it is hidden in the satellite view. Colours come from
+// the CSS tokens (styles.css), so the chart follows the theme.
 import { t } from '../i18n';
 import { km, vnDay, vnTime } from '../storm/format';
 import { circleRing, destination, glyphPoints, glyphRadius, glyphScale, isDatePoint, windRing } from '../storm/glyph';
@@ -19,10 +19,6 @@ export interface ChartDeps {
   provinces: readonly Province[];
   /** Screen position (container px) of a surface point into out; false when it is on the far side. */
   surface(lat: number, lon: number, out: number[]): boolean;
-  /** Screen position of a point on the geostationary orbit at this longitude; false when hidden. */
-  orbit(lon: number, out: number[]): boolean;
-  /** The Earth's disc on screen: centre x, y and radius (px) into out. */
-  earth(out: number[]): void;
   /** Surface point under a screen position, or null when the ray misses the Earth. */
   pick(x: number, y: number): LatLon | null;
   isLand(lat: number, lon: number): boolean;
@@ -75,11 +71,6 @@ export function createChart(deps: ChartDeps) {
   const gGlyph = el('g', 'chart__glyphs', gMap);
   const gDates = el('g', 'chart__dates', gMap);
   const gNotes = el('g', 'chart__notes', gMap);
-  const gOrbit = el('g', 'chart__orbit', svg);
-  const orbitPath = el('path', 'chart__orbit-line', gOrbit);
-  const dimPath = el('path', 'chart__dim', gOrbit);
-  const orbitLab = el('text', 'chart__orbit-label', gOrbit);
-  orbitLab.textContent = t('map.orbit', { km: km(35786) });
 
   const pt = [0, 0];
   const pt2 = [0, 0];
@@ -337,13 +328,11 @@ export function createChart(deps: ChartDeps) {
       stormNote.key = placeNote.key = '';
     }
     gMap.style.display = f.satView || f.returning ? 'none' : '';
-    gOrbit.style.display = f.satView && !f.returning ? '' : 'none';
     if (f.returning) {
       placeNoted = false;
       return;
     }
     if (f.satView) {
-      updateOrbit(f);
       placeNoted = false;
       return;
     }
@@ -646,92 +635,6 @@ export function createChart(deps: ChartDeps) {
     const ext = Math.abs(nx) * (g.lw / 2) + Math.abs(ny) * (g.lh / 2);
     const ll = deps.pick(g.x + nx * (g.r + 4 + ext), g.y + ny * (g.r + 4 + ext));
     return ll && deps.isLand(ll.lat, ll.lon) ? 1 : 0;
-  }
-
-  /**
-   * Satellite view (DESIGN 5): the geostationary orbit itself, drawn dotted through the model in the same
-   * perspective as the globe (so its geometry is the real one, not a diagram circle), and a measure from the
-   * Earth's surface to the satellite labelled with the altitude. Seen from just behind the satellite, that
-   * distance runs almost along the line of sight, so the drawn line is far shorter than the real distance:
-   * it carries a break mark (two short slashes) so its length does not read as a scale.
-   */
-  const disc = [0, 0, 0];
-  const SAT_LON = 128.2;
-  function updateOrbit(f: ChartFrame): void {
-    deps.earth(disc);
-    const [cx, cy, er] = disc;
-    const hide = () => {
-      orbitPath.setAttribute('d', '');
-      dimPath.setAttribute('d', '');
-      orbitLab.style.display = 'none';
-    };
-    if (!deps.orbit(SAT_LON, pt) || !(er > 0)) return hide();
-    const sx = pt[0];
-    const sy = pt[1];
-    // The orbit, every half degree of longitude either side of the satellite, broken where it is hidden.
-    let od = '';
-    let pen = false;
-    for (let k = -100; k <= 100; k += 0.5) {
-      const on = deps.orbit(SAT_LON + k, pt2) && pt2[0] > -f.width && pt2[0] < 2 * f.width && pt2[1] > -f.height && pt2[1] < 2 * f.height;
-      if (on) {
-        od += `${pen ? 'L' : 'M'}${f1(pt2[0])},${f1(pt2[1])}`;
-        pen = true;
-      } else pen = false;
-    }
-    orbitPath.setAttribute('d', od);
-    const R = Math.hypot(sx - cx, sy - cy);
-    if (R < er + 40) {
-      dimPath.setAttribute('d', '');
-      orbitLab.style.display = 'none';
-      return;
-    }
-    // The measure: from the surface towards the satellite, stopping short of the model's ring.
-    const ux = (sx - cx) / R;
-    const uy = (sy - cy) / R;
-    const a0 = er + 3;
-    const a1 = R - 38;
-    const x0 = cx + ux * a0;
-    const y0 = cy + uy * a0;
-    const x1 = cx + ux * a1;
-    const y1 = cy + uy * a1;
-    const tk = 5;
-    // The break: a gap in the middle with two parallel slashes across it.
-    const am = (a0 + a1) / 2;
-    const g0 = am - 3;
-    const g1 = am + 3;
-    const px = -uy;
-    const py = ux;
-    const slash = (at: number) => {
-      const mx = cx + ux * at;
-      const my = cy + uy * at;
-      // Slanted 30 degrees off the perpendicular.
-      const sx2 = px * 0.87 + ux * 0.5;
-      const sy2 = py * 0.87 + uy * 0.5;
-      return `M${f1(mx - sx2 * 6)},${f1(my - sy2 * 6)}L${f1(mx + sx2 * 6)},${f1(my + sy2 * 6)}`;
-    };
-    dimPath.setAttribute(
-      'd',
-      `M${f1(x0)},${f1(y0)}L${f1(cx + ux * g0)},${f1(cy + uy * g0)}M${f1(cx + ux * g1)},${f1(cy + uy * g1)}L${f1(x1)},${f1(y1)}` +
-        slash(g0) +
-        slash(g1) +
-        `M${f1(x0 - px * tk)},${f1(y0 - py * tk)}L${f1(x0 + px * tk)},${f1(y0 + py * tk)}` +
-        `M${f1(x1 - px * tk)},${f1(y1 - py * tk)}L${f1(x1 + px * tk)},${f1(y1 + py * tk)}`,
-    );
-    // Label upright and horizontal, beside the middle of the measure, clear of the line itself.
-    orbitLab.style.display = '';
-    orbitLab.removeAttribute('transform');
-    const lh = lineH();
-    const w = orbitLab.textContent!.length * charW() * 1.15;
-    const mx = cx + ux * am;
-    const my = cy + uy * am;
-    // The side below the line on screen: the model's solar wing rises above the satellite, and its name sits
-    // beside or above it.
-    const sgn = py >= 0 ? 1 : -1;
-    const off = 12 + Math.abs(px * sgn) * (w / 2) + Math.abs(py) * lh * 0.6;
-    const lx = mx + px * sgn * off;
-    const ly = my + py * sgn * off;
-    orbitLab.setAttribute('x', String(f1(lx)));
-    orbitLab.setAttribute('y', String(f1(ly + lh * 0.35)));
   }
 
   let lastTaken: number[][] = [];

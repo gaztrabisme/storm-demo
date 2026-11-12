@@ -4,7 +4,7 @@ import { assistant } from './assistant';
 import { CONE, createActions, createStore, NOW_MS, PROVINCES, reducedMotion, TRACK } from './app';
 import { t } from './i18n';
 import { events, logEvent } from './log';
-import { loadGlobe } from './scene';
+import { loadGlobe, type GlobeController } from './scene';
 import { modeOf, themeOf } from './state';
 import { vnTime } from './storm/format';
 import { h } from './ui/dom';
@@ -86,7 +86,20 @@ try {
 logEvent('open', { mode: modeOf(store.state), textSize: store.state.settings.textSize, theme: themeOf(store.state), width: window.innerWidth });
 if (store.state.onboarding) showOnboarding(store, actions);
 
+/** SPEC 10.6: the satellite HUD's header and labels. */
+const hudStrings = () => ({
+  header: t('satellite.hud.header'),
+  orbit: t('satellite.hud.orbit'),
+  ami: t('satellite.hud.ami'),
+  fullDisk: t('satellite.hud.fullDisk'),
+  resolution: t('satellite.hud.resolution'),
+  ksem: t('satellite.hud.ksem'),
+  wing: t('satellite.hud.wing'),
+  dish: t('satellite.hud.dish'),
+});
+
 // The globe (three.js) loads in its own chunk.
+let globeRef: GlobeController | null = null;
 let readyResolve: () => void = () => {};
 const ready = new Promise<void>((r) => (readyResolve = r));
 loadGlobe({
@@ -98,7 +111,7 @@ loadGlobe({
   cone: CONE,
   provinces: PROVINCES,
   reducedMotion,
-  labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), satName: t('marker.satName') },
+  labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), hud: hudStrings() },
   // On a desktop the key counts as a cover on the map, so the chart is framed above it. On a phone it is in the
   // panel, outside the map (and once the panel scrolls, its box can lie beside the map's rows).
   covers: () => [demoLabel, ...(globeBottom.contains(key.el) ? [key.el] : [])],
@@ -108,6 +121,7 @@ loadGlobe({
   onMetrics: (m) => key.setMetrics(m),
 })
   .then((g) => {
+    globeRef = g;
     actions.attachGlobe(g);
     return g.ready;
   })
@@ -137,6 +151,9 @@ if (import.meta.env.DEV || testMode) {
       },
       now: new Date(NOW_MS).toISOString(),
       cone: CONE.map((c) => ({ ...c })),
+      get satellite() {
+        return globeRef ? globeRef.satellite() : null;
+      },
       events: () => events(),
       ready,
       setPlace: (lat: number, lon: number, label: string) => actions.setPlace(lat, lon, label),

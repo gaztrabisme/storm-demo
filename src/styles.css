@@ -198,6 +198,9 @@ p {
 }
 
 .view-satellite .globe__demo {
+  top: 16px;
+  left: 20px;
+  max-width: calc(100% - 40px);
   color: var(--space-ink);
   text-shadow:
     0 0 2px var(--space),
@@ -352,32 +355,6 @@ p {
   display: none;
 }
 
-.chart__orbit-line {
-  fill: none;
-  stroke: var(--space-ink);
-  stroke-width: 1px;
-  stroke-dasharray: 0.1 4;
-  stroke-linecap: round;
-  opacity: 0.8;
-}
-
-.chart__dim {
-  fill: none;
-  stroke: var(--space-ink);
-  stroke-width: 0.75px;
-}
-
-.chart__orbit text {
-  stroke: var(--space);
-}
-
-.chart__orbit-label {
-  fill: var(--space-ink);
-  font-size: 0.8125rem;
-  font-style: italic;
-  text-anchor: middle;
-}
-
 /* ---- Markers the globe positions (scene/boot.ts) ---- */
 .globe__overlay {
   position: absolute;
@@ -444,31 +421,110 @@ p {
   display: none;
 }
 
+/* The GK-2A model's box on screen in the close-up (the scene sets its place and size each frame). */
 .globe__sat {
-  width: 64px;
-  height: 64px;
-  margin: -32px 0 0 -32px;
-  border: 1px dotted color-mix(in srgb, var(--space-ink) 70%, transparent);
-  border-radius: 50%;
+  will-change: transform;
 }
 
-.globe__sat-lead {
+/* ---- Satellite close-up (SPEC 6.7): [satellite] and its HUD in pale ink on space ---- */
+.satview {
   position: absolute;
-  left: 0;
-  top: 0;
-  height: 0;
-  border-top: 1px solid var(--space-ink);
-  transform-origin: 0 0;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
 }
 
-.globe__sat-name {
+.satview:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
+}
+
+.sathud {
   position: absolute;
-  left: 0;
-  top: 0;
+  inset: 0;
   color: var(--space-ink);
+  font-family: var(--sans);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  /* Text that crosses the orbit's dots or the Earth keeps a halo in the colour of space (DESIGN 5). */
+  text-shadow:
+    0 0 2px var(--space),
+    0 0 2px var(--space),
+    0 0 3px var(--space);
+}
+
+.sathud__lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.sathud__bracket {
+  fill: none;
+  stroke: var(--space-ink);
+  stroke-width: 1px;
+  opacity: 0.7;
+}
+
+.sathud__lead {
+  fill: none;
+  stroke: var(--space-ink);
+  stroke-width: 0.75px;
+}
+
+.sathud__callout {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: min(18em, calc(50% - 64px));
+  will-change: transform;
+}
+
+.sathud__callout--left {
+  text-align: right;
+}
+
+.sathud__part {
+  width: fit-content;
+}
+
+.sathud__callout--left .sathud__part {
+  margin-left: auto;
+}
+
+.sathud__callout--away {
+  opacity: 0.6;
+}
+
+.sathud__sub {
+  margin-top: 2px;
+  color: var(--space-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.sathud__num {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.95em;
+  font-style: normal;
+}
+
+.sathud__foot {
+  position: absolute;
+  left: 20px;
+  bottom: 18px;
+  max-width: calc(100% - 40px);
+}
+
+.sathud__head {
   font-family: var(--serif);
   font-size: 0.9375rem;
-  white-space: nowrap;
+}
+
+.sathud__orbit {
+  margin-top: 3px;
+  color: var(--space-muted);
 }
 
 /* ---- Map key: the worked specimen (ui/key.ts) ----
