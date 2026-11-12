@@ -14,7 +14,7 @@ import { CHIP_IDS, cardAnswer, prepareAnswer, sourceAnswer, whenAnswer, whereAns
 export interface AssistantParts {
   /** Avatar and question sheet, fixed to the viewport. */
   root: HTMLElement;
-  /** The warning pop-up; main.ts docks it on the globe, so it never covers the panel. */
+  /** The warning pop-up: a speech bubble from the portrait, in the corner outside the map (also inside root). */
   warning: HTMLElement;
   sheet: HTMLElement;
 }
@@ -43,7 +43,6 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
   const warning = h(
     'div',
     { test: 'assistant-warning', class: 'assistant-warning', role: 'status', hidden: true },
-    h('img', { class: 'assistant-warning__face', src: avatarUrl, alt: '', width: 40, height: 40, decoding: 'async' }),
     warningText,
     h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeWarning() }),
   );
@@ -207,5 +206,5 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     true,
   );
 
-  return { root: h('div', { test: 'assistant', class: 'assistant' }, avatar, sheet), warning, sheet };
+  return { root: h('div', { test: 'assistant', class: 'assistant' }, warning, avatar, sheet), warning, sheet };
 }

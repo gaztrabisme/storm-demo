@@ -90,19 +90,25 @@ export function worldTexture(pal: EarthPalette): THREE.CanvasTexture {
   return canvasTexture(c);
 }
 
+interface Box {
+  west: number;
+  east: number;
+  south: number;
+  north: number;
+}
+
 /**
- * Texture for the REGION patch, from 10m data. Its edges fade out over one degree, so the patch blends
- * into the 110m globe under it.
+ * A sphere-patch texture for a lat/lon box, painted from the given rings at w x h pixels. Its edges fade out
+ * over one degree, so the patch blends into the coarser layer under it.
  */
-export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
-  const { west, east, south, north } = REGION;
-  const size = 2048;
+function patchTexture(pal: EarthPalette, box: Box, rings: Rings, w: number, h: number, lineWidth: number, wrap = false): THREE.CanvasTexture {
+  const { west, east, south, north } = box;
   const c = document.createElement('canvas');
-  c.width = size;
-  c.height = size;
+  c.width = w;
+  c.height = h;
   const ctx = c.getContext('2d')!;
-  const sx = size / (east - west);
-  const sy = size / (north - south);
+  const sx = w / (east - west);
+  const sy = h / (north - south);
   const pt: [number, number] = [0, 0];
   const project: Project = (lon, lat) => {
     pt[0] = (lon - west) * sx;
@@ -110,10 +116,9 @@ export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
     return pt;
   };
   ctx.fillStyle = pal.sea;
-  ctx.fillRect(0, 0, size, size);
-  drawRings(ctx, vn.rings as Rings, project, pal.land, pal.coast, 1.6);
+  ctx.fillRect(0, 0, w, h);
+  drawRings(ctx, rings, project, pal.land, pal.coast, lineWidth, wrap);
   // Fade the edges to transparent.
-  const fade = sx; // one degree
   ctx.globalCompositeOperation = 'destination-out';
   const edge = (x0: number, y0: number, x1: number, y1: number, rx: number, ry: number, rw: number, rh: number) => {
     const e = ctx.createLinearGradient(x0, y0, x1, y1);
@@ -122,12 +127,34 @@ export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
     ctx.fillStyle = e;
     ctx.fillRect(rx, ry, rw, rh);
   };
-  edge(0, 0, fade, 0, 0, 0, fade, size);
-  edge(size, 0, size - fade, 0, size - fade, 0, fade, size);
-  edge(0, 0, 0, fade, 0, 0, size, fade);
-  edge(0, size, 0, size - fade, 0, size - fade, size, fade);
+  edge(0, 0, sx, 0, 0, 0, sx, h);
+  edge(w, 0, w - sx, 0, w - sx, 0, sx, h);
+  edge(0, 0, 0, sy, 0, 0, w, sy);
+  edge(0, h, 0, h - sy, 0, h - sy, w, sy);
   ctx.globalCompositeOperation = 'source-over';
   return canvasTexture(c);
+}
+
+/** Texture for the REGION patch, from 10m data. */
+export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
+  return patchTexture(pal, REGION, vn.rings as Rings, 2048, 2048, 1.6);
+}
+
+/**
+ * The chart area around the region (the whole track and its neighbours), from the same 110m data as the
+ * globe but painted sharp enough for the chart's scale, so no coast outside the 10m region turns into a
+ * blurred, stepped edge. Rings that cross the 180th meridian are unwrapped as on the globe texture.
+ */
+export const CHART_AREA: Box = { west: 70, east: 170, south: -25, north: 50 };
+export function chartAreaTexture(pal: EarthPalette): THREE.CanvasTexture {
+  return patchTexture(pal, CHART_AREA, world as Rings, 4096, 3072, 1.4, true);
+}
+
+/** Sphere patch geometry for a lat/lon box, in the same frame as THREE.SphereGeometry and vec() in boot.ts. */
+export function patchGeometry(radius: number, box: Box): THREE.SphereGeometry {
+  const RAD = Math.PI / 180;
+  const { west, east, south, north } = box;
+  return new THREE.SphereGeometry(radius, 128, 96, (west + 180) * RAD, (east - west) * RAD, (90 - north) * RAD, (north - south) * RAD);
 }
 
 /** Sphere patch geometry covering REGION, in the same frame as THREE.SphereGeometry and vec() in boot.ts. */

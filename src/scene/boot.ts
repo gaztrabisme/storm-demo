@@ -5,7 +5,7 @@ import { trackAt, type LatLon, type Step } from '../storm/verdict';
 import type { Mode } from '../state';
 import type { CreateGlobe, GlobeController, GlobeInit } from './types';
 import { createChart } from './chart';
-import { landMask, regionGeometry, regionTexture, worldTexture } from './coast';
+import { CHART_AREA, chartAreaTexture, landMask, patchGeometry, regionGeometry, regionTexture, worldTexture } from './coast';
 import { EARTH } from './colors';
 import { startFrameLoop } from './frameLoop';
 import { buildSatellite } from './satellite';
@@ -69,12 +69,18 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   // Earth: 110m coast on the whole globe, 10m coast on a patch over the Vietnam region (SPEC 3.3), painted as
   // a paper chart (light theme) or a night screen (dark theme). Each set is painted once, when first needed.
   type Ground = 'light' | 'dark';
-  const textures: Partial<Record<Ground, { world: THREE.CanvasTexture; region: THREE.CanvasTexture }>> = {};
-  const texturesFor = (g: Ground) => (textures[g] ??= { world: worldTexture(EARTH[g]), region: regionTexture(EARTH[g]) });
+  const textures: Partial<Record<Ground, { world: THREE.CanvasTexture; area: THREE.CanvasTexture; region: THREE.CanvasTexture }>> = {};
+  const texturesFor = (g: Ground) => (textures[g] ??= { world: worldTexture(EARTH[g]), area: chartAreaTexture(EARTH[g]), region: regionTexture(EARTH[g]) });
   const earthMat = new THREE.MeshBasicMaterial();
+  const areaMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
   const regionMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), earthMat));
-  scene.add(new THREE.Mesh(regionGeometry(1.0008), regionMat));
+  const areaMesh = new THREE.Mesh(patchGeometry(1.0004, CHART_AREA), areaMat);
+  areaMesh.renderOrder = 1;
+  scene.add(areaMesh);
+  const regionMesh = new THREE.Mesh(regionGeometry(1.0008), regionMat);
+  regionMesh.renderOrder = 2;
+  scene.add(regionMesh);
   const themeGround = (): Ground => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
   let ground: Ground | null = null;
   function applyGround(): void {
@@ -83,18 +89,15 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     ground = g;
     const tx = texturesFor(g);
     earthMat.map = tx.world;
+    areaMat.map = tx.area;
     regionMat.map = tx.region;
-    earthMat.needsUpdate = regionMat.needsUpdate = true;
+    earthMat.needsUpdate = areaMat.needsUpdate = regionMat.needsUpdate = true;
     markDirty();
   }
   let markDirty = (): void => {};
   const themeObserver = new MutationObserver(() => applyGround());
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  // Track positions from now on (the camera frames them with the place).
-  const future: LatLon[] = track.points.filter((p) => Date.parse(p.t) > nowMs).map((p) => ({ lat: p.lat, lon: p.lon }));
-  const atNow = trackAt(track, nowMs);
-  if (atNow) future.unshift({ lat: atNow.lat, lon: atNow.lon });
 
   // Storm at the selected time.
   let storm: Step | null = null;
@@ -178,9 +181,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   let satDir = [NaN, NaN];
 
   // ---------------------------------------------------------------- What covers the globe
-  /** Boxes (x0, y0, x1, y1, container pixels) of the init.covers elements that are shown over the canvas. */
-  function coverBoxes(): number[][] {
-    const els = init.covers?.() ?? [];
+  /** Boxes (x0, y0, x1, y1, container pixels) of the given elements where they are shown over the canvas. */
+  function coverBoxes(els: Element[] = init.covers?.() ?? []): number[][] {
     if (!els.length) return [];
     const g = container.getBoundingClientRect();
     const out: number[][] = [];
@@ -220,8 +222,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   };
   /** Distance at which a cap of angular radius alpha (deg) fits the view. */
   const fitDist = (alphaDeg: number) => Math.max(1.3, Math.cos(alphaDeg * RAD) + Math.sin(alphaDeg * RAD) / tanHalfMin());
-  /** Easy mode's locked view: Vietnam and the storm at now. */
-  const homeCam = (): Cam => ({ lat: 15.5, lon: 108.5, dist: fitDist(13) });
+  /**
+   * Easy mode's locked view, and the view after a check: framed on the storm's track and Vietnam (plus the
+   * place, once there is one), so the track fills the map rather than a thin band of it. Desktop keeps the
+   * whole track, from its start east of the Philippines; a phone keeps the two days before now onwards, so
+   * the dots stay apart. On a desktop this leaves the open Pacific north-east of the track for the key.
+   */
+  const homeCam = (): Cam => trackCam(null);
 
   /**
    * Camera that shows a cap of angular radius halfDeg around (lat, lon) in the open band between the covers:
@@ -243,17 +250,91 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     return { lat: Math.max(-85, Math.min(85, lat + phi)), lon, dist };
   }
 
-  /** The smallest cap holding the place and the track from now on, as a camera. */
-  function placeCam(p: LatLon): Cam {
-    const pts: THREE.Vector3[] = [vec(p.lat, p.lon)];
-    for (const f of future) pts.push(vec(f.lat, f.lon));
-    const mid = new THREE.Vector3();
-    for (const v of pts) mid.add(v);
-    if (mid.lengthSq() < 1e-9) mid.copy(pts[0]);
-    mid.normalize();
-    let half = 0;
-    for (const v of pts) half = Math.max(half, mid.angleTo(v) / RAD);
-    return framed(Math.asin(mid.y) / RAD, Math.atan2(-mid.z, mid.x) / RAD, half + 3);
+  /** The track and Vietnam, with the place when there is one, as a camera (see homeCam). */
+  const placeCam = (p: LatLon): Cam => trackCam(p);
+
+  const fitCamera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
+  const fv = new THREE.Vector3();
+  const fd = new THREE.Vector3();
+  /** Surface point under screen position (x, y) for fitCamera, or null. */
+  function fitPick(x: number, y: number): LatLon | null {
+    fd.set((x / width) * 2 - 1, -(y / height) * 2 + 1, 0.5).unproject(fitCamera).sub(fitCamera.position).normalize();
+    const b = fitCamera.position.dot(fd);
+    const c = fitCamera.position.lengthSq() - 1;
+    const disc = b * b - c;
+    if (disc < 0) return null;
+    fv.copy(fitCamera.position).addScaledVector(fd, -b - Math.sqrt(disc));
+    return { lat: Math.asin(Math.max(-1, Math.min(1, fv.y))) / RAD, lon: Math.atan2(-fv.z, fv.x) / RAD };
+  }
+
+  /**
+   * Camera that fits the points inside the screen box [x0, y0, x1, y1]: a few rounds of moving the view centre
+   * so the points' screen box is centred in the target, and scaling the distance by how much it overflows.
+   */
+  function fitPoints(pts: LatLon[], box: number[]): Cam {
+    let lat0 = Infinity;
+    let lat1 = -Infinity;
+    let lon0 = Infinity;
+    let lon1 = -Infinity;
+    for (const p of pts) {
+      lat0 = Math.min(lat0, p.lat);
+      lat1 = Math.max(lat1, p.lat);
+      lon0 = Math.min(lon0, p.lon);
+      lon1 = Math.max(lon1, p.lon);
+    }
+    const c: Cam = { lat: (lat0 + lat1) / 2, lon: (lon0 + lon1) / 2, dist: fitDist(Math.max(lat1 - lat0, lon1 - lon0) / 2 + 2) };
+    fitCamera.fov = camera.fov;
+    fitCamera.aspect = camera.aspect;
+    fitCamera.updateProjectionMatrix();
+    const [bx0, by0, bx1, by1] = box;
+    for (let it = 0; it < 12; it++) {
+      vec(c.lat, c.lon, c.dist, fitCamera.position);
+      fitCamera.lookAt(0, 0, 0);
+      fitCamera.updateMatrixWorld();
+      let sx0 = Infinity;
+      let sy0 = Infinity;
+      let sx1 = -Infinity;
+      let sy1 = -Infinity;
+      for (const p of pts) {
+        vec(p.lat, p.lon, 1, fv).project(fitCamera);
+        const x = (fv.x * 0.5 + 0.5) * width;
+        const y = (-fv.y * 0.5 + 0.5) * height;
+        sx0 = Math.min(sx0, x);
+        sx1 = Math.max(sx1, x);
+        sy0 = Math.min(sy0, y);
+        sy1 = Math.max(sy1, y);
+      }
+      const k = Math.max((sx1 - sx0) / Math.max(1, bx1 - bx0), (sy1 - sy0) / Math.max(1, by1 - by0));
+      const dx = (sx0 + sx1) / 2 - (bx0 + bx1) / 2;
+      const dy = (sy0 + sy1) / 2 - (by0 + by1) / 2;
+      const to = fitPick(width / 2 + dx, height / 2 + dy);
+      if (to) {
+        c.lat = Math.max(-80, Math.min(80, to.lat));
+        c.lon = to.lon;
+      }
+      c.dist = Math.max(1.05, Math.min(6, 1 + (c.dist - 1) * k));
+      if (Math.abs(k - 1) < 0.005 && Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) break;
+    }
+    return c;
+  }
+
+  const wideView = () => width >= 600 && width > height;
+  /** Vietnam's mainland, north and south ends (it frames the view with the track). */
+  const VIETNAM: LatLon[] = [
+    { lat: 23.4, lon: 105.3 },
+    { lat: 8.6, lon: 104.8 },
+    { lat: 12.6, lon: 109.5 },
+    { lat: 22.5, lon: 102.1 },
+  ];
+  const H48 = 48 * 3600 * 1000;
+  function trackCam(p: LatLon | null): Cam {
+    const wide = wideView();
+    const pts: LatLon[] = track.points.filter((q) => wide || Date.parse(q.t) >= nowMs - H48).map((q) => ({ lat: q.lat, lon: q.lon }));
+    pts.push(...VIETNAM);
+    if (p) pts.push({ lat: p.lat, lon: p.lon });
+    const { top, bottom } = insets();
+    const box = wide ? [56, top + 30, width - 28, height - bottom - 30] : [34, top + 22, width - 14, height - bottom - 30];
+    return fitPoints(pts, box);
   }
   function stormCam(): Cam | null {
     const s = trackAt(track, timeMs);
@@ -426,6 +507,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       out[1] = (-cv.y * 0.5 + 0.5) * height;
       return true;
     },
+    earth(out) {
+      proj.set(0, 0, 0).project(camera);
+      out[0] = (proj.x * 0.5 + 0.5) * width;
+      out[1] = (-proj.y * 0.5 + 0.5) * height;
+      const d = camera.position.length();
+      out[2] = d > 1 ? (Math.tan(Math.asin(1 / d)) / Math.tan((camera.fov / 2) * RAD)) * (height / 2) : 0;
+    },
     pick(x, y) {
       cdir.set((x / width) * 2 - 1, -(y / height) * 2 + 1, 0.5).unproject(camera).sub(camera.position).normalize();
       const b = camera.position.dot(cdir);
@@ -440,8 +528,9 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     isLand,
   });
 
+  let metricsKey = '';
   function updateChart(settled: boolean): void {
-    const blocked = coverBoxes();
+    const blocked = coverBoxes([...(init.covers?.() ?? []), ...(init.avoid?.() ?? [])]);
     if (!stormEl.hidden) blocked.push([last.storm[0] - 13, last.storm[1] - 13, last.storm[0] + 13, last.storm[1] + 13]);
     if (!pinEl.hidden) blocked.push([last.pin[0] - 9, last.pin[1] - 9, last.pin[0] + 9, last.pin[1] + 9]);
     chart.update({
@@ -456,6 +545,14 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       place,
       blocked,
     });
+    if (settled && !satView) {
+      const m = chart.metrics();
+      const key = `${m.scale.toFixed(2)}|${m.pxPerKm.toFixed(3)}`;
+      if (key !== metricsKey && m.pxPerKm > 0) {
+        metricsKey = key;
+        init.onMetrics?.(m);
+      }
+    }
     const named = chart.placeNoted();
     if (pinName.hidden !== named) {
       pinName.hidden = named;
@@ -520,21 +617,41 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       if (pinNameW < 0) pinNameW = pinName.textContent && !pinName.hidden ? pinName.offsetWidth : 0;
       occupy(last.pin[0] - 10, last.pin[1] - 12, last.pin[0] + 14 + pinNameW, last.pin[1] + 12);
     }
+    const free = (x: number, y: number, w: number, hh: number): boolean => {
+      if (x < 2 || y < 0 || x + w > width - 2 || y + hh > height) return false;
+      for (let j = 0; j < n; j++) {
+        const o = j * 4;
+        if (x < placed[o + 2] && x + w > placed[o] && y < placed[o + 3] && y + hh > placed[o + 1]) return false;
+      }
+      return true;
+    };
     for (let i = 0; i < nLabels; i++) {
       let on = screen(provWorld[i], true);
-      const x = proj.x + 7;
-      const y = proj.y - labelH[i] / 2;
-      if (on && (x + labelW[i] > width || y < 0 || y + labelH[i] > height)) on = false;
+      const w = labelW[i];
+      const hh = labelH[i];
+      let x = NaN;
+      let y = NaN;
       if (on) {
-        for (let j = 0; j < n; j++) {
-          const o = j * 4;
-          if (x < placed[o + 2] && x + labelW[i] > placed[o] && y < placed[o + 3] && y + labelH[i] > placed[o + 1]) {
-            on = false;
+        // Right of the dot, then left, above, below; a name that would touch the track, a 70 % circle, a
+        // date or a note is left out (the panel lists every province).
+        const px = proj.x;
+        const py = proj.y;
+        on = false;
+        for (const [cx, cy] of [
+          [px + 6, py - hh / 2],
+          [px - 6 - w, py - hh / 2],
+          [px - w / 2, py - hh - 3],
+          [px - w / 2, py + 3],
+        ]) {
+          if (free(cx, cy, w, hh)) {
+            x = cx;
+            y = cy;
+            on = true;
             break;
           }
         }
       }
-      if (on) occupy(x - 2, y - 1, x + labelW[i] + 2, y + labelH[i] + 1);
+      if (on) occupy(x - 2, y - 1, x + w + 2, y + hh + 1);
       const el = labels[i];
       if ((labelOn[i] === 1) !== on) {
         labelOn[i] = on ? 1 : 0;
@@ -708,6 +825,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       themeObserver.disconnect();
       for (const tx of Object.values(textures)) {
         tx?.world.dispose();
+        tx?.area.dispose();
         tx?.region.dispose();
       }
       chart.dispose();

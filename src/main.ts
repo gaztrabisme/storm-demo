@@ -32,8 +32,8 @@ const demoLabel = h('p', { test: 'demo-label', class: 'globe__demo', text: t('de
 // The map key: a worked specimen of the track glyphs with the legend lines (ui/key.ts).
 const key = mapKey();
 const usui = assistant(store, actions);
-// Bottom of the globe: the warning pop-up (when shown), then, on a desktop, the map key in the open sea.
-const globeBottom = h('div', { class: 'globe__bottom' }, usui.warning);
+// Desktop: the map key sits in the open sea at the bottom of the map.
+const globeBottom = h('div', { class: 'globe__bottom' });
 const globeEl = h('section', { test: 'globe', class: 'globe', 'aria-label': t('app.globe') }, loading, demoLabel, globeBottom);
 
 const panelMain = h(
@@ -48,7 +48,8 @@ const panelMain = h(
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
 
-// Desktop: the key sits on the map, lower right. Phone: it folds under the map, at the end of the panel.
+// Desktop: the key sits on the map, in the open sea north-east of the track. Phone: it folds under the map,
+// at the end of the panel, so the check button and the verdict keep the first screen.
 const placeKey = (wide: boolean) => {
   if (wide) globeBottom.append(key.el);
   else panelMain.append(key.el);
@@ -93,7 +94,9 @@ loadGlobe({
   provinces: PROVINCES,
   reducedMotion,
   labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), satName: t('marker.satName') },
-  covers: () => [demoLabel, key.el, usui.warning, usui.sheet],
+  covers: () => [demoLabel, usui.sheet],
+  avoid: () => [key.el],
+  onMetrics: (m) => key.setMetrics(m),
 })
   .then((g) => {
     actions.attachGlobe(g);

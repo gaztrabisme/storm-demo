@@ -13,9 +13,8 @@ export const EARTH: Record<'light' | 'dark', EarthPalette> = {
   dark: { sea: '#0e1622', land: '#1a2433', coast: '#8a97a8' },
 };
 
-/** The GK-2A model, in pale ink (DESIGN 5). */
+/** The GK-2A model, a line drawing in pale ink on the colour of space (DESIGN 5; --space-ink, --space). */
 export const SCENE = {
-  satBody: 0xd9dde3,
-  satMetal: 0xb7bec8,
-  satPanel: 0x7d8796,
+  satInk: 0xc9d2de,
+  satFill: 0x070b12,
 } as const;

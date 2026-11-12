@@ -52,39 +52,35 @@
   border-color: var(--ink);
 }
 
-/* ---- Warning pop-up, docked in the globe's bottom stack (main.ts), so it never covers the panel.
-   The globe frames the place and the storm above it. Phone: full width, over the map key and the circle
-   legend, so the open map stays as tall as possible. Desktop: lower right of the globe, above the legends. */
+/* ---- Warning: a speech bubble from the portrait, in Usui-chan's corner under the panel (outside the map).
+   Paper with a 1 px ink edge (DESIGN 5); a small square tail points at the portrait. */
 .assistant-warning {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1;
+  position: fixed;
+  right: 86px;
+  bottom: 12px;
+  z-index: 30;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 6px 10px 12px;
+  gap: 4px;
+  width: min(330px, calc(100vw - 98px));
+  padding: 8px 2px 8px 12px;
   border: 1px solid var(--ink);
-  border-left: 4px solid var(--accent);
   border-radius: 0;
   background: var(--paper);
   color: var(--ink);
 }
 
-@media (min-width: 900px) {
-  .assistant-warning {
-    position: static;
-    align-self: flex-end;
-    width: min(360px, 100%);
-  }
-}
-
-.assistant-warning__face {
-  flex: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+.assistant-warning::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  bottom: 30px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--ink);
+  border-right: 1px solid var(--ink);
+  background: var(--paper);
+  transform: rotate(45deg);
 }
 
 .assistant-warning__text {
@@ -92,6 +88,7 @@
   min-width: 0;
   align-self: center;
   font-weight: 600;
+  line-height: 1.35;
 }
 
 /* ---- Question sheet, above the portrait. */

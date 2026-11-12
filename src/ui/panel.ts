@@ -62,6 +62,8 @@ export function checkBlock(store: Store, actions: Actions): HTMLElement {
     line.textContent = s.picker === 'failed' ? t('picker.failed') : t('picker.label');
   };
   store.subscribe((s, prev) => {
+    // Once there is an answer, the question steps back to an outlined button (DESIGN 3: one ink fill).
+    if (!!s.verdict !== !!prev.verdict) btn.classList.toggle('btn--primary', !s.verdict);
     if (s.locating !== prev.locating || s.picker !== prev.picker) {
       render();
       if (s.picker !== 'hidden' && prev.picker === 'hidden') {

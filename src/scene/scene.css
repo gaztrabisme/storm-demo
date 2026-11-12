@@ -12,9 +12,10 @@
   left: 0;
   top: 0;
   white-space: nowrap;
-  font-size: 0.6875rem;
+  font-family: var(--serif);
+  font-size: 0.75rem;
   line-height: 1.2;
-  color: var(--ink);
+  color: var(--muted);
   text-shadow:
     0 0 2px var(--paper),
     0 0 2px var(--paper),

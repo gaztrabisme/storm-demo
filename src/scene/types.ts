@@ -23,6 +23,10 @@ export interface GlobeInit {
    * them are left out.
    */
   covers?: () => Element[];
+  /** Elements over the globe that chart labels and notes keep clear of, without changing the framing. */
+  avoid?: () => Element[];
+  /** Called when the map scale settles: the dot scale (storm/glyph.ts) and px per km at the view centre. */
+  onMetrics?: (m: { scale: number; pxPerKm: number }) => void;
 }
 
 /**

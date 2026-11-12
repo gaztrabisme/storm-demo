@@ -5,25 +5,11 @@
 // geostationary orbit. Colours come from the CSS tokens (styles.css), so the chart follows the theme.
 import { t } from '../i18n';
 import { km, vnDay, vnTime } from '../storm/format';
-import { glyphPoints, glyphRadius, isDatePoint } from '../storm/glyph';
-import { verdict, windLevel, type ConeCircle, type LatLon, type Province, type Radii, type Step, type Track } from '../storm/verdict';
+import { circleRing, destination, glyphPoints, glyphRadius, glyphScale, isDatePoint, windRing } from '../storm/glyph';
+import { verdict, windLevel, type ConeCircle, type LatLon, type Province, type Step, type Track } from '../storm/verdict';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const RAD = Math.PI / 180;
-const EARTH_KM = 6371;
-const NM_KM = 1.852;
-const QUADS: Array<keyof Radii> = ['ne', 'se', 'sw', 'nw'];
-
-/** Point at distance dKm and bearing brg (deg) from (lat, lon), on a great circle. */
-export function destination(lat: number, lon: number, brg: number, dKm: number): LatLon {
-  const d = dKm / EARTH_KM;
-  const p1 = lat * RAD;
-  const l1 = lon * RAD;
-  const b = brg * RAD;
-  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
-  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-  return { lat: p2 / RAD, lon: l2 / RAD };
-}
 
 export interface ChartDeps {
   container: HTMLElement;
@@ -35,6 +21,8 @@ export interface ChartDeps {
   surface(lat: number, lon: number, out: number[]): boolean;
   /** Screen position of a point on the geostationary orbit at this longitude; false when hidden. */
   orbit(lon: number, out: number[]): boolean;
+  /** The Earth's disc on screen: centre x, y and radius (px) into out. */
+  earth(out: number[]): void;
   /** Surface point under a screen position, or null when the ray misses the Earth. */
   pick(x: number, y: number): LatLon | null;
   isLand(lat: number, lon: number): boolean;
@@ -88,6 +76,7 @@ export function createChart(deps: ChartDeps) {
   const gNotes = el('g', 'chart__notes', gMap);
   const gOrbit = el('g', 'chart__orbit', svg);
   const orbitPath = el('path', 'chart__orbit-line', gOrbit);
+  const dimPath = el('path', 'chart__dim', gOrbit);
   const orbitLab = el('text', 'chart__orbit-label', gOrbit);
   orbitLab.textContent = t('map.orbit', { km: km(35786) });
 
@@ -103,12 +92,13 @@ export function createChart(deps: ChartDeps) {
     const c = el('circle', `chart__glyph chart__glyph--${level === null ? 'missing' : past ? 'past' : 'forecast'}`, gGlyph);
     const r = glyphRadius(level);
     c.setAttribute('r', String(f1(r)));
+    c.dataset.level = level === null ? '' : String(level);
     let label: SVGTextElement | null = null;
     if (isDatePoint(p)) {
       label = el('text', 'chart__date', gDates);
       label.textContent = vnDay(p.t);
     }
-    return { p, r, c, label, x: NaN, y: NaN, on: false, lw: 0, lh: 0 };
+    return { p, level, r, c, label, x: NaN, y: NaN, on: false, lw: 0, lh: 0 };
   });
 
   // ---- 70 % circles and their hour labels.
@@ -116,15 +106,13 @@ export function createChart(deps: ChartDeps) {
     const path = el('path', 'chart__cone-line', gCone);
     const lab = el('text', 'chart__cone-label', gCone);
     lab.textContent = t('map.hours', { h: c.hours });
-    const ring: LatLon[] = [];
-    for (let b = 0; b <= 360; b += 5) ring.push(destination(c.lat, c.lon, b, c.radiusKm));
-    return { c, path, lab, ring, edge: destination(c.lat, c.lon, 180, c.radiusKm) };
+    return { c, path, lab, ring: circleRing(c.lat, c.lon, c.radiusKm), edge: destination(c.lat, c.lon, 180, c.radiusKm) };
   });
 
   // ---- Province dots (full mode).
   const provDots = deps.provinces.map((p) => {
     const c = el('circle', 'chart__province', gProv);
-    c.setAttribute('r', '1.8');
+    c.setAttribute('r', '1.5');
     return { p, c };
   });
 
@@ -210,13 +198,13 @@ export function createChart(deps: ChartDeps) {
     return { box: [x0 - 4, y0 - 2, x0 + w + 4, y0 + h + 2], tx, ty };
   }
 
-  // Preferred first: lower right, upper right, then round the compass.
-  const ANGLES = [30, -30, 150, -150, 0, 180, 60, -60, 120, -120, 90, -90, 15, -15, 165, -165, 45, -45, 135, -135];
+  // Preferred first: lower right (south-east, open sea on this chart), upper right, then round the compass.
+  const ANGLES = [45, 30, 60, -30, 150, -150, 0, 180, -60, 120, -120, 90, -90, 15, -15, 165, -165, -45, 135, -135];
 
   function fitNote(n: Note, ax: number, ay: number, f: ChartFrame, taken: number[][], glyphPts: number[][]): boolean {
     let best: { box: Box; tx: number; ty: number } | null = null;
     let bestScore = Infinity;
-    for (const d of [70, 100, 140]) {
+    for (const d of [70, 100, 140, 190]) {
       for (let i = 0; i < ANGLES.length; i++) {
         const c = candidate(ax, ay, n.w, n.h, ANGLES[i], d);
         const [x0, y0, x1, y1] = c.box;
@@ -309,6 +297,9 @@ export function createChart(deps: ChartDeps) {
   }
 
   let placeNoted = false;
+  /** Dot scale and map scale (px per km at the view centre) in the last frame. */
+  let scale = 1;
+  let pxPerKm = 0;
 
   function update(f: ChartFrame): void {
     vw = f.width;
@@ -421,8 +412,12 @@ export function createChart(deps: ChartDeps) {
     for (let i = li; i < gratLabels.length; i++) gratLabels[i].style.display = 'none';
 
     // 70 % circles, labelled with their hours at the bottom edge.
+    const marks: number[][] = [];
+    const ringPts: number[][] = [];
     for (const c of cones) {
-      c.path.setAttribute('d', polyline(c.ring));
+      ringPts.length = 0;
+      c.path.setAttribute('d', polyline(c.ring, ringPts));
+      for (const [x, y] of ringPts) if (!Number.isNaN(x)) marks.push([x - 3, y - 3, x + 3, y + 3]);
       if (deps.surface(c.edge.lat, c.edge.lon, pt)) {
         c.lab.style.display = '';
         c.lab.setAttribute('x', String(f1(pt[0])));
@@ -434,23 +429,26 @@ export function createChart(deps: ChartDeps) {
 
     // Wind area of level 8 or more at the selected time, from the four quadrant radii.
     let wd = '';
+    let windBox: number[] | null = null;
     const s = f.storm;
-    if (s) {
-      let any = false;
+    const ring = s ? windRing(s) : null;
+    if (ring) {
       let pen = false;
-      for (let q = 0; q < 4; q++) {
-        const r = (s.r34nm[QUADS[q]] ?? 0) * NM_KM;
-        if (r > 0) any = true;
-        for (let i = 0; i <= 18; i++) {
-          const p = destination(s.lat, s.lon, q * 90 + i * 5, r);
-          if (deps.surface(p.lat, p.lon, pt) && nearView(pt[0], pt[1])) {
-            wd += `${pen ? 'L' : 'M'}${f1(pt[0])},${f1(pt[1])}`;
-            pen = true;
-          }
+      const wb = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const p of ring) {
+        if (deps.surface(p.lat, p.lon, pt) && nearView(pt[0], pt[1])) {
+          wd += `${pen ? 'L' : 'M'}${f1(pt[0])},${f1(pt[1])}`;
+          pen = true;
+          wb[0] = Math.min(wb[0], pt[0]);
+          wb[1] = Math.min(wb[1], pt[1]);
+          wb[2] = Math.max(wb[2], pt[0]);
+          wb[3] = Math.max(wb[3], pt[1]);
         }
       }
-      if (!any) wd = '';
-      else if (wd) wd += 'Z';
+      if (wd) {
+        wd += 'Z';
+        windBox = [wb[0] - 3, wb[1] - 3, wb[2] + 3, wb[3] + 3];
+      }
     }
     windPath.setAttribute('d', wd);
 
@@ -458,18 +456,41 @@ export function createChart(deps: ChartDeps) {
     pastPath.setAttribute('d', polyline(pastPts));
     forePath.setAttribute('d', polyline(forePts));
 
-    // Glyphs.
-    const glyphPts: number[][] = [];
+    // Glyphs. Their size follows the map scale: the biggest dot takes at most half the usual gap between
+    // neighbouring points on screen (glyph.ts), so the dots stay apart on a phone.
+    const gaps: number[] = [];
+    let prev: (typeof glyphs)[number] | null = null;
     for (const g of glyphs) {
       g.on = deps.surface(g.p.lat, g.p.lon, pt) && pt[0] > -20 && pt[0] < f.width + 20 && pt[1] > -20 && pt[1] < f.height + 20;
       if (g.on) {
         g.x = pt[0];
         g.y = pt[1];
+        if (prev?.on) gaps.push(Math.hypot(g.x - prev.x, g.y - prev.y));
+      }
+      prev = g;
+    }
+    gaps.sort((a, b) => a - b);
+    scale = glyphScale(gaps.length ? gaps[Math.floor(gaps.length * 0.15)] : 0);
+    const glyphPts: number[][] = [];
+    for (const g of glyphs) {
+      if (g.on) {
+        const r = glyphRadius(g.level, scale);
+        if (Math.abs(r - g.r) > 0.05) {
+          g.r = r;
+          g.c.setAttribute('r', String(f1(r)));
+        }
         g.c.setAttribute('cx', String(f1(g.x)));
         g.c.setAttribute('cy', String(f1(g.y)));
         glyphPts.push([g.x, g.y, g.r + 2]);
+        marks.push([g.x - g.r - 2, g.y - g.r - 2, g.x + g.r + 2, g.y + g.r + 2]);
       }
       g.c.style.display = g.on ? '' : 'none';
+    }
+    // Map scale at the view centre, for the key's specimen.
+    const mid = deps.pick(f.width / 2, f.height / 2);
+    if (mid) {
+      const q = destination(mid.lat, mid.lon, 90, 200);
+      if (deps.surface(mid.lat, mid.lon, pt) && deps.surface(q.lat, q.lon, pt2)) pxPerKm = Math.hypot(pt2[0] - pt[0], pt2[1] - pt[1]) / 200;
     }
 
     // Province dots (full mode).
@@ -490,9 +511,12 @@ export function createChart(deps: ChartDeps) {
     if (showNotes && s && deps.surface(s.lat, s.lon, pt) && pt[0] >= 0 && pt[0] <= f.width && pt[1] >= 0 && pt[1] <= f.height) {
       const lv = windLevel(s.windKt);
       setNote(stormNote, t('marker.storm'), lv === null ? vnTime(f.timeMs) : `${vnTime(f.timeMs)} · ${t('map.level', { n: lv })}`);
-      if (placeNoteAt(stormNote, pt[0], pt[1], f, taken, glyphPts)) taken.push(stormNote.box!);
+      // The note sits in open sea, clear of the wind area it describes.
+      const avoid = windBox ? [...taken, windBox] : taken;
+      if (placeNoteAt(stormNote, pt[0], pt[1], f, avoid, glyphPts)) taken.push(stormNote.box!);
     } else stormNote.g.style.display = 'none';
     placeNoted = false;
+    if (windBox) taken.push(windBox);
     const pl = f.place;
     if (showNotes && pl && deps.surface(pl.lat, pl.lon, pt2) && pt2[0] >= 0 && pt2[0] <= f.width && pt2[1] >= 0 && pt2[1] <= f.height) {
       const key = `${pl.lat},${pl.lon}`;
@@ -557,7 +581,7 @@ export function createChart(deps: ChartDeps) {
       }
       g.label.style.display = placed ? '' : 'none';
     }
-    lastTaken = taken;
+    lastTaken = taken.concat(marks);
   }
 
   function seaScore(g: { x: number; y: number; r: number; lw: number }, [nx, ny]: number[]): number {
@@ -569,39 +593,56 @@ export function createChart(deps: ChartDeps) {
     return fitNote(n, ax, ay, f, taken, glyphPts);
   }
 
+  /**
+   * Satellite view (DESIGN 5): a dotted reference circle for the geostationary orbit, drawn round the Earth's
+   * disc through the satellite (a diagram, not to scale), and a measured span with end ticks from the Earth's
+   * surface to the satellite, labelled with the altitude along it.
+   */
+  const disc = [0, 0, 0];
   function updateOrbit(f: ChartFrame): void {
-    let d = '';
-    let pen = false;
-    let best: number[] | null = null;
-    let px = NaN;
-    let py = NaN;
-    let pIn = false;
-    // Finer steps near the satellite's longitude, where the orbit passes close to the camera.
-    const far = (x: number, y: number) => x > -5 * vw && x < 6 * vw && y > -5 * vh && y < 6 * vh;
-    for (let lon = 0; lon <= 360; lon += Math.abs(((lon - 128.2 + 540) % 360) - 180) < 30 ? 0.25 : 2) {
-      if (!deps.orbit(lon, pt) || !far(pt[0], pt[1])) {
-        pen = false;
-        px = NaN;
-        continue;
-      }
-      const isIn = inView(pt[0], pt[1]);
-      if (!Number.isNaN(px) && (isIn || pIn)) {
-        if (!pen) d += `M${f1(px)},${f1(py)}`;
-        d += `L${f1(pt[0])},${f1(pt[1])}`;
-        pen = true;
-      } else pen = false;
-      px = pt[0];
-      py = pt[1];
-      pIn = isIn;
-      // Label at the visible orbit point lowest on screen, inside the view.
-      if (pt[0] > 60 && pt[0] < f.width - 60 && pt[1] > 20 && pt[1] < f.height - 24 && (!best || pt[1] > best[1])) best = [pt[0], pt[1]];
+    deps.earth(disc);
+    const [cx, cy, er] = disc;
+    if (!deps.orbit(128.2, pt) || !(er > 0)) {
+      orbitPath.setAttribute('d', '');
+      dimPath.setAttribute('d', '');
+      orbitLab.style.display = 'none';
+      return;
     }
-    orbitPath.setAttribute('d', d);
-    orbitLab.style.display = best ? '' : 'none';
-    if (best) {
-      orbitLab.setAttribute('x', String(f1(best[0])));
-      orbitLab.setAttribute('y', String(f1(best[1] + lineH() + 4)));
+    const sx = pt[0];
+    const sy = pt[1];
+    const R = Math.hypot(sx - cx, sy - cy);
+    if (R < er + 40) {
+      orbitPath.setAttribute('d', '');
+      dimPath.setAttribute('d', '');
+      orbitLab.style.display = 'none';
+      return;
     }
+    orbitPath.setAttribute('d', `M${f1(cx - R)},${f1(cy)}a${f1(R)},${f1(R)} 0 1,0 ${f1(2 * R)},0a${f1(R)},${f1(R)} 0 1,0 ${f1(-2 * R)},0`);
+    // The span: from the surface towards the satellite, stopping short of the model's ring.
+    const ux = (sx - cx) / R;
+    const uy = (sy - cy) / R;
+    const a0 = er + 3;
+    const a1 = R - 38;
+    const x0 = cx + ux * a0;
+    const y0 = cy + uy * a0;
+    const x1 = cx + ux * a1;
+    const y1 = cy + uy * a1;
+    const tk = 5;
+    dimPath.setAttribute(
+      'd',
+      `M${f1(x0)},${f1(y0)}L${f1(x1)},${f1(y1)}` +
+        `M${f1(x0 - uy * tk)},${f1(y0 + ux * tk)}L${f1(x0 + uy * tk)},${f1(y0 - ux * tk)}` +
+        `M${f1(x1 - uy * tk)},${f1(y1 + ux * tk)}L${f1(x1 + uy * tk)},${f1(y1 - ux * tk)}`,
+    );
+    // Label along the span, upright, set just beside the line in its own frame.
+    let ang = Math.atan2(uy, ux) / RAD;
+    if (ang > 90) ang -= 180;
+    if (ang < -90) ang += 180;
+    orbitLab.style.display = '';
+    orbitLab.setAttribute('x', '0');
+    orbitLab.setAttribute('y', '-9');
+    orbitLab.setAttribute('transform', `translate(${f1((x0 + x1) / 2)},${f1((y0 + y1) / 2)}) rotate(${f1(ang)})`);
+    void f;
   }
 
   let lastTaken: number[][] = [];
@@ -610,6 +651,8 @@ export function createChart(deps: ChartDeps) {
     update,
     /** Boxes the chart labels and notes took in the last frame (province names keep clear of them). */
     boxes: (): number[][] => lastTaken,
+    /** Dot scale (glyph.ts) and px per km at the view centre, from the last map frame. */
+    metrics: (): { scale: number; pxPerKm: number } => ({ scale, pxPerKm }),
     /** True when the place is named in its note, so the pin's own name is not repeated. */
     placeNoted: (): boolean => placeNoted,
     dispose(): void {

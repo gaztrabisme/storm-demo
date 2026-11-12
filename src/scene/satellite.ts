@@ -1,5 +1,6 @@
 // GK-2A, low-poly and built in code (SPEC 6.7): a box body, one solar panel wing, a dish and instrument boxes.
-// Not to scale. The group's +z axis faces the Earth after lookAt(0, 0, 0).
+// Not to scale. The group's +z axis faces the Earth after lookAt(0, 0, 0). Drawn as a thin-line drawing in
+// pale ink (DESIGN 5): faces in the colour of space, their edges as fine lines.
 import * as THREE from 'three';
 import { SCENE } from './colors';
 
@@ -9,9 +10,10 @@ export const SAT_SIZE = 0.0025;
 export function buildSatellite(): THREE.Group {
   const s = SAT_SIZE;
   const g = new THREE.Group();
-  const body = new THREE.MeshLambertMaterial({ color: SCENE.satBody });
-  const metal = new THREE.MeshLambertMaterial({ color: SCENE.satMetal });
-  const panel = new THREE.MeshLambertMaterial({ color: SCENE.satPanel, side: THREE.DoubleSide });
+  const fill = () => new THREE.MeshBasicMaterial({ color: SCENE.satFill, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  const body = fill();
+  const metal = fill();
+  const panel = fill();
 
   // Body.
   g.add(new THREE.Mesh(new THREE.BoxGeometry(s, s * 1.2, s), body));
@@ -46,6 +48,27 @@ export function buildSatellite(): THREE.Group {
     const b = new THREE.Mesh(new THREE.BoxGeometry(s * k, s * k, s * k), metal);
     b.position.set(x * s, y * s, z * s);
     g.add(b);
+  }
+
+  // Edges as fine pale lines over the dark faces.
+  const ink = new THREE.LineBasicMaterial({ color: SCENE.satInk });
+  for (const m of [...g.children]) {
+    if (!(m instanceof THREE.Mesh)) continue;
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 25), ink);
+    e.position.copy(m.position);
+    e.rotation.copy(m.rotation);
+    g.add(e);
+  }
+  // Solar cells: a line across each panel, so the wing reads as a panel, not a block.
+  for (let i = 0; i < 3; i++) {
+    const y = s * (2.1 + i * 1.18);
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-s * 0.7, y, s * 0.03),
+      new THREE.Vector3(s * 0.7, y, s * 0.03),
+      new THREE.Vector3(0, y - s * 0.55, s * 0.03),
+      new THREE.Vector3(0, y + s * 0.55, s * 0.03),
+    ]);
+    g.add(new THREE.LineSegments(geo, ink));
   }
   return g;
 }
