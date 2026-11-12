@@ -235,3 +235,52 @@
 .assistant {
   display: contents;
 }
+
+/* ---- The half-body figure (SPEC 6.8): about 120 px tall on a phone, 160 px on a desktop; transparent. */
+.assistant-figure {
+  position: relative;
+  flex: none;
+  width: 102px;
+  height: 120px;
+}
+
+.assistant-figure[hidden] {
+  display: none;
+}
+
+.assistant-figure__img,
+.assistant-figure__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.assistant-figure__img {
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+@media (min-width: 900px) {
+  .assistant-figure {
+    width: 136px;
+    height: 160px;
+  }
+}
+
+.assistant-warning .assistant-figure {
+  align-self: flex-end;
+  margin: -4px 0 -8px -6px;
+}
+
+.satinfo__top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding__greet {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}

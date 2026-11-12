@@ -2,6 +2,7 @@
 import trackJson from './data/generated/yagi.json';
 import provincesJson from './data/provinces.json';
 import { t } from './i18n';
+import { holdFigures } from './assistant/figure';
 import { logEvent, msSinceOpen, throttle } from './log';
 import type { GlobeController } from './scene/types';
 import { isMode, isTextSize, isTheme, modeOf, Store, themeOf, type Mode, type Place, type Settings, type State, type TextSize, type Theme } from './state';
@@ -17,6 +18,8 @@ export const LAST_MS = Date.parse(TRACK.points[TRACK.points.length - 1].t);
 export const STEP_3H = 3 * 3600 * 1000;
 export const CONE = cone(TRACK, NOW_MS);
 export const GEO_TIMEOUT_MS = 8000;
+/** Usui-chan's figures are not drawn during a satellite flight (0.82 s) and a little after. */
+const FLIGHT_HOLD_MS = 1000;
 
 export const SETTINGS_KEY = 'stormdemo.settings.v1';
 const DEFAULTS: Settings = { textSize: 16, theme: null, mode: 'easy' };
@@ -195,6 +198,7 @@ export function createActions(store: Store) {
     openSatellite() {
       if (store.state.view === 'satellite') return;
       logEvent('satellite_open');
+      holdFigures(FLIGHT_HOLD_MS);
       store.set({ view: 'satellite' });
       globe?.showSatellite();
     },
@@ -202,6 +206,7 @@ export function createActions(store: Store) {
     closeSatellite() {
       if (store.state.view !== 'satellite') return;
       logEvent('satellite_close');
+      holdFigures(FLIGHT_HOLD_MS);
       store.set({ view: 'map' });
       globe?.back();
     },

@@ -2,11 +2,14 @@
 import type { Actions } from '../app';
 import { t } from '../i18n';
 import { MODES, modeOf, type Mode, type Store } from '../state';
+import { createFigure } from '../assistant/figure';
 import { h, radioGroup } from './dom';
 import { textSizeGroup } from './settings';
 
 export function showOnboarding(store: Store, actions: Actions): void {
   let step = 1;
+  // SPEC 6.8: Usui-chan greets on step 1 (hello, then idle).
+  const figure = createFigure('assistant-figure--onboarding');
   const body = h('div', { class: 'onboarding__body' });
   const next = h('button', { class: 'btn btn--primary', type: 'button', text: t('onboarding.next'), onclick: () => (step < 3 ? go(step + 1) : end(true)) });
   const skip = h('button', { class: 'btn', type: 'button', text: t('onboarding.skip'), onclick: () => end(false) });
@@ -20,7 +23,12 @@ export function showOnboarding(store: Store, actions: Actions): void {
     counter.textContent = t('onboarding.step', { n });
     if (n === 1) {
       const sizes = textSizeGroup(store, actions, 'ob-text');
-      body.replaceChildren(h('h2', { id: 'ob-title', text: t('onboarding.textTitle') }), sizes.el, h('p', { class: 'onboarding__preview', text: t('onboarding.preview') }));
+      body.replaceChildren(
+        h('div', { class: 'onboarding__greet' }, figure.el, h('h2', { id: 'ob-title', text: t('onboarding.textTitle') })),
+        sizes.el,
+        h('p', { class: 'onboarding__preview', text: t('onboarding.preview') }),
+      );
+      figure.play(['hello'], { holdMs: 4300 });
     } else if (n === 2) {
       const lines = MODES.map((m) => h('p', { id: `ob-mode-${m}`, class: 'onboarding__line' }, h('strong', { text: `${t(`settings.modeOptions.${m}`)}: ` }), t(`onboarding.${m}Line`)));
       const modes = radioGroup<Mode>({
@@ -42,6 +50,7 @@ export function showOnboarding(store: Store, actions: Actions): void {
     if (!el.open) return;
     el.close();
     el.remove();
+    figure.dispose();
     actions.finishOnboarding(done);
   }
 

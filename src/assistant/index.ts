@@ -2,7 +2,6 @@
 // and the question sheet with its 7 chips. Pattern from AstroSphere src/guide/.
 import './assistant.css';
 import avatarUrl from '../assets/guide/usui-avatar.webp';
-import poseUrl from '../assets/guide/usui-pose.webp';
 import type { Actions } from '../app';
 import { t } from '../i18n';
 import { logEvent } from '../log';
@@ -10,6 +9,10 @@ import type { Store } from '../state';
 import { vnTime } from '../storm/format';
 import { h, nextId } from '../ui/dom';
 import { CHIP_IDS, cardAnswer, prepareAnswer, sourceAnswer, whenAnswer, whereAnswer, type Answer, type ChipId } from './answers';
+import { createFigure, talkMs, type Figure } from './figure';
+/** hello: one wave (4.2 s); nod: one nod (1.3 s). */
+const HELLO_MS = 4300;
+const NOD_MS = 1400;
 
 export interface AssistantParts {
   /** Avatar and question sheet, fixed to the viewport. */
@@ -40,9 +43,11 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
   // ---- Warning pop-up: once per page session, only after an affected verdict.
   let warned = false;
   const warningText = h('p', { class: 'assistant-warning__text' });
+  const warningFigure = createFigure('assistant-figure--warning');
   const warning = h(
     'div',
     { test: 'assistant-warning', class: 'assistant-warning', role: 'status', hidden: true },
+    warningFigure.el,
     warningText,
     h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeWarning() }),
   );
@@ -76,13 +81,16 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     { class: 'assistant-chips' },
     ...CHIP_IDS.map((id) => h('button', { test: 'chip', 'data-chip': id, class: 'assistant-chip', type: 'button', text: t(`assistant.chips.${id}`), onclick: () => onChip(id) })),
   );
+  const sheetFigure: Figure = createFigure('assistant-figure--sheet');
+  /** hello on the sheet's first open in the page session, a nod after that. */
+  let greeted = false;
   const sheet = h(
     'section',
     { test: 'assistant-sheet', id: sheetId, class: 'assistant-sheet', role: 'dialog', 'aria-labelledby': titleId, hidden: true },
     h(
       'div',
       { class: 'assistant-sheet__head' },
-      h('img', { class: 'assistant-sheet__pose', src: poseUrl, alt: t('assistant.poseAlt'), width: 596, height: 560, decoding: 'async' }),
+      sheetFigure.el,
       // The title also brings the questions back into view (on a phone they fold away under an answer).
       h('h2', { class: 'assistant-sheet__title', id: titleId }, h('button', { class: 'assistant-sheet__title-btn', type: 'button', text: t('assistant.sheetTitle'), onclick: () => showChips(true) })),
       h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeSheet(true) }),
@@ -104,6 +112,9 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     sheet.hidden = false;
     avatar.setAttribute('aria-expanded', 'true');
     logEvent('assistant_open');
+    if (greeted) sheetFigure.play(['nod'], { holdMs: NOD_MS });
+    else sheetFigure.play(['hello'], { holdMs: HELLO_MS });
+    greeted = true;
     chips.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
   }
   function closeSheet(returnFocus = false): void {
@@ -111,6 +122,23 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     sheet.hidden = true;
     avatar.setAttribute('aria-expanded', 'false');
     if (returnFocus) avatar.focus({ preventScroll: true });
+  }
+
+  /** Shows an answer and has the sheet's figure say it with `clip` + talk. */
+  function say(a: Answer | null, clip: 'nod' | 'point' | 'alert' | 'relief', param?: unknown): void {
+    show(a);
+    if (a) sheetFigure.play([clip, 'talk'], { param, holdMs: talkMs(a.line) });
+  }
+  /** The when-answer, said with worry for an affected place and relief for an unaffected one. */
+  function sayWhen(v: NonNullable<typeof store.state.verdict>, place: NonNullable<typeof store.state.place>): void {
+    say(whenAnswer(v, place), v.affected ? 'alert' : 'relief');
+  }
+  /** Screen direction from the sheet's figure to the storm marker ({x, y}, y up). */
+  function towardStorm(): { x: number; y: number } {
+    const m = document.querySelector('[data-test="storm-marker"]')?.getBoundingClientRect();
+    const f = sheetFigure.el.getBoundingClientRect();
+    if (!m || !m.width) return { x: -1, y: 0 };
+    return { x: m.left + m.width / 2 - (f.left + f.width / 2), y: f.top + f.height / 2 - (m.top + m.height / 2) };
   }
 
   function show(a: Answer | null): void {
@@ -134,44 +162,47 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     body.scrollTop = Math.max(0, answer.offsetTop - 4);
   }
 
-  /** "when" asked before any verdict: answer in the sheet once the check gives one. */
-  let pendingWhen = false;
-  /** The sheet was closed so the province picker could be used; it opens again with the "when" answer. */
-  let reopenForWhen = false;
+  /**
+   * "affected", or "when" asked before any verdict: the sheet stays open while the location is found (Usui-chan
+   * thinks), and answers once the check gives a verdict. An affected verdict's first warning answers "affected" itself.
+   */
+  let pending: 'affected' | 'when' | null = null;
+  /** The sheet was closed so the province picker could be used; it opens again with the answer. */
+  let reopenForAnswer = false;
 
   function onChip(id: ChipId): void {
     logEvent('chip', { id });
-    pendingWhen = false;
-    reopenForWhen = false;
+    pending = null;
+    reopenForAnswer = false;
     const s = store.state;
     switch (id) {
       case 'affected':
         show(null);
-        closeSheet(true);
+        pending = 'affected';
         actions.closeSatellite();
         actions.runCheck();
         break;
       case 'when':
-        if (s.verdict && s.place) show(whenAnswer(s.verdict, s.place));
+        if (s.verdict && s.place) sayWhen(s.verdict, s.place);
         else {
           show(null);
-          pendingWhen = true;
+          pending = 'when';
           actions.closeSatellite();
           actions.runCheck();
         }
         break;
       case 'prepare':
-        show(prepareAnswer());
+        say(prepareAnswer(), 'nod');
         break;
       case 'windlevel':
-        show(cardAnswer('wind'));
+        say(cardAnswer('wind'), 'nod');
         break;
       case 'radius':
-        show(cardAnswer('radius'));
+        say(cardAnswer('radius'), 'nod');
         break;
       case 'where':
         actions.closeSatellite();
-        show(whereAnswer(s.timeMs));
+        say(whereAnswer(s.timeMs), 'point', towardStorm());
         actions.highlightStorm();
         break;
       case 'source':
@@ -185,26 +216,37 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
   store.subscribe((s, prev) => {
     // The warning is about one place: a new check, the province picker or a new place closes it.
     if ((s.locating && !prev.locating) || (s.picker !== 'hidden' && prev.picker === 'hidden') || s.place !== prev.place) closeWarning();
-    if (pendingWhen && s.picker !== 'hidden' && prev.picker === 'hidden' && !sheet.hidden) {
+    // Waiting for the location (SPEC 6.8): Usui-chan thinks.
+    if (pending && s.locating && !prev.locating && !sheet.hidden) sheetFigure.play(['think']);
+    if (pending && s.picker !== 'hidden' && prev.picker === 'hidden' && !sheet.hidden) {
       // Location failed: the sheet would cover the picker on a phone.
-      reopenForWhen = true;
+      reopenForAnswer = true;
       closeSheet();
     }
     if (s.verdict === prev.verdict || !s.verdict || !s.place) return;
-    if (pendingWhen) {
-      pendingWhen = false;
-      if (reopenForWhen) {
-        reopenForWhen = false;
-        sheet.hidden = false;
-        avatar.setAttribute('aria-expanded', 'true');
+    const warnNow = s.verdict.affected && !warned && s.verdict.firstInside !== null;
+    if (pending) {
+      const asked = pending;
+      pending = null;
+      const reopen = reopenForAnswer;
+      reopenForAnswer = false;
+      if (asked === 'affected' && warnNow) {
+        // The warning gives the answer; the verdict card shows under it.
+        closeSheet();
+      } else {
+        if (reopen) {
+          sheet.hidden = false;
+          avatar.setAttribute('aria-expanded', 'true');
+        }
+        sayWhen(s.verdict, s.place);
       }
-      show(whenAnswer(s.verdict, s.place));
     }
-    if (s.verdict.affected && !warned && s.verdict.firstInside !== null) {
+    if (warnNow && s.verdict.firstInside !== null) {
       warned = true;
       warningText.textContent = t('assistant.warning', { place: s.place.label, firstInside: vnTime(s.verdict.firstInside) });
       warning.hidden = false;
       syncFoot();
+      warningFigure.play(['alert', 'talk'], { holdMs: talkMs(warningText.textContent) });
       logEvent('assistant_warning_shown');
     }
   });
