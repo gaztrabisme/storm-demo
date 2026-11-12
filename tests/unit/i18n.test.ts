@@ -1,7 +1,7 @@
 // Locked acceptance tests: SPEC section 2, all user-facing text in src/i18n/vi.json, no user-facing English.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { APPROVED_FIXED, WHERE_TEMPLATE, templateRe } from '../content.mjs';
+import { APPROVED_FIXED, SUMMARY_TEMPLATE, VERDICT_WIND_TEMPLATE, WHERE_TEMPLATE, templateRe } from '../content.mjs';
 
 const FILE = new URL('../../src/i18n/vi.json', import.meta.url);
 const ENGLISH = ['button', 'click', 'settings', 'loading', 'error', 'close', 'next', 'back', 'skip', 'export', 'source', 'done', 'mode', 'theme', 'menu', 'open', 'cancel', 'ok', 'help', 'home', 'info'];
@@ -35,7 +35,7 @@ describe('src/i18n/vi.json', () => {
     expect(missing).toEqual([]);
   });
 
-  it('every approved string of SPEC 10 (cards, actions, satellite panel), the 6.2 legend and the 6.4 credits is in vi.json word for word', () => {
+  it('every approved string of SPEC 10 (cards, actions, satellite panel, 10.6 HUD labels), the 6.2 legend and the 6.4 credits is in vi.json word for word', () => {
     const missing = APPROVED_FIXED.filter((s: string) => !strings.some((v) => v.includes(s)));
     expect(missing).toEqual([]);
   });
@@ -43,6 +43,13 @@ describe('src/i18n/vi.json', () => {
   it('the SPEC 10.5 "where" answer template is in vi.json word for word (placeholder names free)', () => {
     const re = templateRe(WHERE_TEMPLATE);
     expect(strings.some((v) => re.test(v)), WHERE_TEMPLATE).toBe(true);
+  });
+
+  it('the SPEC 6.3 storm-summary and verdict-wind templates are in vi.json word for word (placeholder names free)', () => {
+    for (const tpl of [SUMMARY_TEMPLATE, VERDICT_WIND_TEMPLATE]) {
+      const re = templateRe(tpl);
+      expect(strings.some((v) => re.test(v)), tpl).toBe(true);
+    }
   });
 
   it('no entry contains common English UI words', () => {

@@ -27,17 +27,23 @@ export function sourceVi(id, section) {
 }
 
 // ---- SPEC 6.2 / 6.3 / 6.4 ----
-export const CONE_LEGEND = 'Vòng tròn: tâm bão có khoảng 70% khả năng đi vào (bán kính trung bình năm 2023 của Cơ quan Khí tượng Nhật Bản)';
+export const CONE_LEGEND = 'Vòng tròn: nơi tâm bão có thể đi qua';
 export const CONE = [
   { hours: 24, radiusKm: 86 },
   { hours: 48, radiusKm: 148 },
   { hours: 72, radiusKm: 217 },
 ];
-export const SUMMARY_AT_NOW = 'Bão Yagi · đang ở biển Đông · sức gió cấp 17 (ước tính)';
+export const SUMMARY_TEMPLATE = 'Bây giờ ({time}): bão Yagi ở Biển Đông · sức gió cấp {n} (ước tính)';
+export const SUMMARY_AT_NOW = 'Bây giờ (07:00, 05/09): bão Yagi ở Biển Đông · sức gió cấp 17 (ước tính)';
+/** SPEC 6.3 step 2: the place label at the start of a sentence and on the map pin, and inside a sentence. */
+export const PLACE_START = 'Vị trí của bạn';
+export const PLACE_INSIDE = 'vị trí của bạn';
+export const TIMELINE_UNAFFECTED_HEADING = 'Không có gió từ cấp 8 trở lên';
 export const headAffected = (place) => `Có. Gió từ cấp 8 trở lên sẽ tới ${place}`;
 export const headUnaffected = (place) => `Không. ${place} nằm ngoài vùng gió từ cấp 8 trở lên`;
 export const VERDICT_NOTE = 'Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.';
-export const verdictWind = (n) => `Sức gió lớn nhất: cấp ${n} (ước tính)`;
+export const VERDICT_WIND_TEMPLATE = 'Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)';
+export const verdictWind = (n) => `Sức gió mạnh nhất gần tâm bão: cấp ${n} (ước tính)`;
 export const CREDITS = [
   'Usui-chan, linh vật của CLB Thiên văn USAC',
   'Đường đi bão: IBTrACS v04r01 (NOAA)',
@@ -106,6 +112,25 @@ export const SAT_FACTS = [
 ];
 export const SAT_SOURCE = 'Nguồn: Trung tâm Vệ tinh Khí tượng Quốc gia Hàn Quốc (NMSC), GK2A Fact Sheets; WMO OSCAR; Kim và cộng sự (2021), Remote Sensing.';
 
+// ---- SPEC 10.6: satellite HUD ----
+export const HUD_HEADER = 'GK-2A · mô hình minh họa, không đúng tỉ lệ';
+/** The 10.6 callout strings after the header, in SPEC order. */
+export const HUD_LABELS = [
+  'Quỹ đạo địa tĩnh · 128,2° Đông · cách mặt đất 35.786 km',
+  'AMI · 16 kênh ảnh',
+  'Ảnh trọn đĩa Trái Đất: 10 phút một lần',
+  'Độ phân giải: 0,5–2 km',
+  'KSEM · theo dõi thời tiết vũ trụ',
+  'Tấm pin mặt trời',
+  'Ăng-ten',
+];
+/** The 10.6 labels SPEC puts on a model part (AMI box, KSEM box, wing, dish). */
+export const HUD_PART_LABELS = ['AMI · 16 kênh ảnh', 'KSEM · theo dõi thời tiết vũ trụ', 'Tấm pin mặt trời', 'Ăng-ten'];
+export const HUD_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+// ---- SPEC 6.8: Usui-chan clip library ----
+export const CLIP_NAMES = ['idle', 'hello', 'talk', 'alert', 'point', 'nod', 'relief', 'think', 'lookUp'];
+
 // ---- SPEC 10.5 ----
 export const WHERE_TEMPLATE = 'Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính).';
 
@@ -118,6 +143,7 @@ export const APPROVED_FIXED = [
   SAT_HEADING, ...SAT_FACTS, SAT_SOURCE,
   CONE_LEGEND,
   ...CREDITS,
+  HUD_HEADER, ...HUD_LABELS,
 ];
 
 // ---- SPEC 5.5: wind level from the Decision 18/2021 Appendix III table ----

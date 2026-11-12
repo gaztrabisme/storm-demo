@@ -88,24 +88,25 @@ Each listed element carries the `data-test` value given in brackets.
 ### 6.2 Globe [`globe`]
 - The three.js globe with coastlines, the track (past solid, forecast dashed) and a storm marker at the selected time [`storm-marker`]. In full mode, the place markers are labelled with province names.
 - The demo label from section 4 [`demo-label`].
-- **Track uncertainty circles:** three circles centred on the track position at now + 24 h, + 48 h and + 72 h. Their radii are 86, 148 and 217 km: the 2023 mean radii of JMA's 70% probability circles (SOURCES.md, `jma2023_prob_circle`). A small legend [`cone-legend`] reads `Vòng tròn: tâm bão có khoảng 70% khả năng đi vào (bán kính trung bình năm 2023 của Cơ quan Khí tượng Nhật Bản)`. `window.__app.cone` is `[{ hours, lat, lon, radiusKm }]` for the three circles.
+- **Track uncertainty circles:** three circles centred on the track position at now + 24 h, + 48 h and + 72 h. Their radii are 86, 148 and 217 km: the 2023 mean radii of JMA's 70% probability circles (SOURCES.md, `jma2023_prob_circle`). A small legend [`cone-legend`] reads `Vòng tròn: nơi tâm bão có thể đi qua`; the method (70%, JMA 2023 mean radii) is in the `Vùng gió mạnh là gì?` card (10.2). `window.__app.cone` is `[{ hours, lat, lon, radiusKm }]` for the three circles.
 - The strong-wind area at the selected time is drawn as a filled shape around the marker, using the four quadrant radii.
-- **Full mode:** drag rotates, scroll or pinch zooms. A time slider [`time-slider`] (a native `input type=range`) runs from the first point to the last in 3-hour steps, starts at now, and moves the storm marker. Beside it, the selected time [`time-readout`].
-- **Easy mode:** the camera is locked over Vietnam and there is no slider. The marker shows the storm at now.
+- **The map view is fixed in both modes** (owner, 2026-11-12): no drag, no scroll or pinch zoom, no camera moves on the map. The view frames the whole track and all of Vietnam for the current layout (phone and desktop may differ). Only the satellite trip (6.7) moves the camera.
+- **Full mode:** a time slider [`time-slider`] (a native `input type=range`) runs from the first point to the last in 3-hour steps, starts at now, and moves the storm marker. Beside it, the selected time [`time-readout`].
+- **Easy mode:** no slider. The marker shows the storm at now.
 
 ### 6.3 Main panel
-- The storm summary [`storm-summary`]: `Bão Yagi · đang ở biển Đông · sức gió cấp {n} (ước tính)`, using the wind at now (130 kt → level 17).
+- The storm summary [`storm-summary`]: `Bây giờ ({time}): bão Yagi ở Biển Đông · sức gió cấp {n} (ước tính)`, where {time} is the demo now (`07:00, 05/09`) and {n} the level at now (130 kt → 17). It always describes now, never the slider time.
 - The primary button `Nhà tôi có bị ảnh hưởng không?` [`btn-check`]:
   1. It asks for geolocation.
-  2. **Granted:** use the coordinates, label the place `Vị trí của bạn`.
+  2. **Granted:** use the coordinates, label the place `Vị trí của bạn` at the start of a sentence and on the map pin, and `vị trí của bạn` (lower case) inside a sentence.
   3. **Denied, failed, or no response in 8 s:** show the province picker [`province-picker`] (a native `select` of the 34 provinces) with the line `Không lấy được vị trí. Chọn tỉnh của bạn:`.
-  4. Then the camera flies to frame the place and the track (a cut under reduced motion), a pin [`place-pin`] marks the place, and the verdict card opens.
+  4. Then (no camera move: the view is fixed) a pin [`place-pin`] marks the place, and the verdict card opens.
 - **Verdict card** [`verdict`], with attribute `data-affected="true|false"`:
-  - Affected: heading `Có. Gió từ cấp 8 trở lên sẽ tới {place}` [`verdict-head`]; line `Từ khoảng {firstInside} đến {lastInside}` [`verdict-when`]; `Sức gió lớn nhất: cấp {n} (ước tính)` [`verdict-wind`] from `peakWindKt`; the heading `Bạn nên làm ngay` and the 3 actions of section 10.3 [`verdict-actions`].
+  - Affected: heading `Có. Gió từ cấp 8 trở lên sẽ tới {place}` [`verdict-head`]; line `Từ khoảng {firstInside} đến {lastInside}` [`verdict-when`]; `Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)` [`verdict-wind`] from `peakWindKt`; the heading `Bạn nên làm ngay` and the 3 actions of section 10.3 [`verdict-actions`].
   - Not affected: heading `Không. {place} nằm ngoài vùng gió từ cấp 8 trở lên` [`verdict-head`]; line `Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}` [`verdict-when`]; line `Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.` [`verdict-note`]; the heading `Vẫn nên theo dõi tin bão` and the same 3 actions.
   - Under the actions, the source line [`verdict-source`] from section 10.3.
   - The button `Chọn nơi khác` [`btn-recheck`] opens the province picker.
-- **Timeline** [`timeline`] (full mode only): a list of provinces from `timeline()`, each row [`timeline-row`] showing the name and either `{firstInside} – {lastInside}` or `cách {km} km`. A row is affected when its `data-affected` is `true`. Tapping a row selects that province as the place.
+- **Timeline** [`timeline`] (full mode only): a list of provinces from `timeline()`, each row [`timeline-row`] showing the name and either `{firstInside} – {lastInside}` or `tâm bão cách {km} km`. The unaffected rows come under the sub-heading `Không có gió từ cấp 8 trở lên`. A row is affected when its `data-affected` is `true`. Tapping a row selects that province as the place.
 - **Knowledge cards** [`learn`]: 3 cards, `Cấp gió là gì?`, `Vùng gió mạnh là gì?`, `Làm gì khi bão tới?`. Each card has a body and a source line [`learn-source`], all from SOURCES.md. In easy mode the cards are collapsed into one `Tìm hiểu thêm` disclosure.
 
 ### 6.4 Usui-chan [`assistant`]
@@ -120,7 +121,7 @@ Each listed element carries the `data-test` value given in brackets.
   | `prepare` | Tôi cần chuẩn bị gì? | shows the 3 safety actions |
   | `windlevel` | Cấp gió là gì? | shows the wind-level card text |
   | `radius` | Vùng gió mạnh là gì? | shows the radius card text |
-  | `where` | Bão đang ở đâu? | flies the camera to the storm at the selected time, answers with its position and time |
+  | `where` | Bão đang ở đâu? | highlights the storm marker (no camera move), answers with its position and time |
   | `source` | Dữ liệu này lấy từ đâu? | opens the satellite view |
 
   The answer text appears in the sheet [`assistant-answer`]. Voice: Usui-chan says "mình" to "bạn", at most two sentences, no emoji.
@@ -136,7 +137,7 @@ Each listed element carries the `data-test` value given in brackets.
 - Hidden export: the button `Xuất dữ liệu thử nghiệm` [`btn-export`] is visible only with `?test=1`.
 
 ### 6.6 First run [`onboarding`]
-Shown when `stormdemo.settings.v1` is absent. Three steps, each with `Tiếp` and `Bỏ qua`:
+Shown when `stormdemo.settings.v1` is absent. Three steps. Steps 1 and 2 have `Tiếp` and `Bỏ qua`; step 3 has only `Bắt đầu`:
 1. Text size, with a live preview.
 2. Mode, with one line on each choice.
 3. `Trang này có thể hỏi vị trí của bạn để biết bão có tới chỗ bạn không. Bạn có thể chọn tỉnh thay vì cho vị trí.`
@@ -144,10 +145,48 @@ Shown when `stormdemo.settings.v1` is absent. Three steps, each with `Tiếp` an
 Finishing or skipping saves the settings and never shows the onboarding again.
 
 ### 6.7 Satellite view [`satellite`]
-- `btn-source` (or the `source` chip) flies the camera from its current view out to ~42,000 km from Earth's centre, ending with the GK-2A model [`satellite-model`] at 0° latitude, 128.2° E, about 35,786 km above the surface, and Vietnam visible. The flight takes 3–5 s; under reduced motion it is a cut.
-- The model is low-poly and built in code: a box body, one solar panel wing, a dish and instrument boxes. Not to scale.
-- The info panel [`satellite-info`] has the facts of section 10.4 only, with the one source line at the end, plus the button `Quay lại bản đồ` [`btn-back`], which flies back to the previous view. Esc does the same.
-- `window.__app.view` is `"map"` or `"satellite"`.
+- `btn-source` (or the `source` chip) flies the camera from the map to a close-up of the GK-2A model [`satellite-model`], placed at 0° latitude, 128.2° E, about 35,786 km above the surface. The flight takes 0.8–1.2 s out and the same back (owner: "much faster"); under reduced motion both are cuts.
+- At the end the model fills about half of the view's shorter side, with Earth as a dim disc behind it and the dotted geostationary orbit through it.
+- **The user can turn the model:** drag (mouse or one finger) orbits the camera around the model; scroll or pinch zooms between 0.6× and 2× of the arrival distance. A slow automatic turn runs while the user is not touching it, and stops under reduced motion. Keyboard: arrow keys turn the model when the view has focus.
+- The model stays a pale-ink wireframe built in code: body box, AMI imager box, a small KSEM box, one solar wing of panels on a boom, a dish. Not to scale.
+- **HUD** [`satellite-hud`]: a screen-space overlay in the same pale-ink line style: corner brackets around the view, and callout labels [`hud-label`] with fine leaders to anchor points on the model parts. The leaders follow the parts as the model turns; a label whose part faces away hides its leader. Labels are the strings of 10.6 only. Numbers in the HUD use a monospace system stack (`ui-monospace, "SF Mono", Menlo, Consolas, monospace`).
+- The info panel [`satellite-info`] has the facts of section 10.4 only, with the one source line at the end, plus the button `Quay lại bản đồ` [`btn-back`], which flies back to the map. Esc does the same.
+- `window.__app.view` is `"map"` or `"satellite"`. `window.__app.satellite` exposes `{ yaw, pitch, zoom }` of the close-up camera.
+
+### 6.8 Usui-chan animation
+- The 56 px corner button [`assistant-avatar`] stays the static `usui-avatar.webp` portrait.
+- Wherever Usui-chan speaks (the warning pop-up, the question sheet, onboarding step 1, the satellite view's first visit), a half-body Usui-chan [`assistant-figure`] is drawn from the club's model `usui-chan.glb` (copied from AstroSphere `public/models/`) in a small transparent canvas, about 120 px tall on phone and 160 px on desktop. Until it loads, or if WebGL fails, the `usui-pose.webp` image shows instead.
+- Motion is a **library of reusable clips** built procedurally on the model's humanoid bones (`J_Bip_*`) and face shapes (`Fcl_*`), in `src/assistant/clips/`. Each clip is a pure function of time that returns bone rotations and face weights, so clips blend and are unit-testable:
+
+  | Clip | What it does |
+  |---|---|
+  | `idle` | breathing, small sway, a blink every few seconds |
+  | `hello` | one wave with the right hand, smile |
+  | `talk` | mouth shapes cycling while text is appearing, small head motion |
+  | `alert` | worried brows, hands drawn in, slight lean forward |
+  | `point` | right arm points toward a screen direction given as a parameter |
+  | `nod` | one nod |
+  | `relief` | joyful eyes and smile, small bounce |
+  | `think` | head tilt, hand toward chin |
+  | `lookUp` | head and eyes up and to the side |
+
+- Which clip plays where:
+
+  | Context | Clips |
+  |---|---|
+  | onboarding step 1 | `hello`, then `idle` |
+  | warning pop-up (affected) | `alert` + `talk`, then `idle` |
+  | sheet opens | `hello` once per session, else `nod`, then `idle` |
+  | chip `affected` / `when` with an affected answer | `alert` + `talk` |
+  | same chips, unaffected answer | `relief` + `talk` |
+  | chip `where` | `point` toward the storm marker + `talk` |
+  | chips `prepare`, `windlevel`, `radius` | `nod` + `talk` |
+  | chip `source`, satellite view first visit | `lookUp` + `talk` |
+  | waiting for location | `think` |
+
+- The current clip name is on the figure as `data-clip`.
+- Under reduced motion, the figure holds a still neutral pose and never loops.
+- Nothing is drawn while the figure is off screen or the tab is hidden. One render loop serves all figures.
 
 ## 7. Event log — `src/log/`
 
@@ -176,13 +215,14 @@ Finishing or skipping saves the settings and never shows the onboarding again.
 - `verdict` (the last result or null)
 - `now` (ISO string)
 - `cone` (section 6.2)
+- `satellite` (section 6.7)
 - `events()` (array)
 - `ready` (a promise that resolves when the globe has drawn its first frame)
 - `setPlace(lat, lon, label)`, which runs the verdict flow without geolocation.
 
 ## 9. Not in scope
 
-Rainfall, landslide risk, voice, free-text chat, the 3D mascot, live data, accounts, analytics.
+Rainfall, landslide risk, voice, free-text chat, live data, accounts, analytics.
 
 ## 10. Approved content
 
@@ -224,3 +264,12 @@ Heading `Vệ tinh GK-2A`, then these facts:
 ### 10.5 Usui-chan answers
 - Each chip's answer is built only from 10.1–10.4 and the verdict.
 - `where`: `Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính).`
+
+### 10.6 Satellite HUD labels
+- Header: `GK-2A · mô hình minh họa, không đúng tỉ lệ`
+- `Quỹ đạo địa tĩnh · 128,2° Đông · cách mặt đất 35.786 km` [F3]
+- on the AMI box: `AMI · 16 kênh ảnh` [F5]
+- `Ảnh trọn đĩa Trái Đất: 10 phút một lần` [F6]
+- `Độ phân giải: 0,5–2 km` [F7]
+- on the KSEM box: `KSEM · theo dõi thời tiết vũ trụ` [F9]
+- on the wing: `Tấm pin mặt trời`; on the dish: `Ăng-ten` (part names only, no claim)

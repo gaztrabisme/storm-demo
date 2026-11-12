@@ -30,10 +30,13 @@ await scenario('finish all three steps (1440x900)', async () => {
   await ob.getByRole('button', { name: 'Tiếp', exact: true }).first().click();
   const s3 = norm(await ob.textContent());
   check('step 3 shows the location line from SPEC 6.6', s3.includes(STEP3), s3.slice(0, 160));
-  check('step 3 still has "Bỏ qua"', (await ob.getByRole('button', { name: 'Bỏ qua', exact: true }).count()) > 0);
-  await ob.getByRole('button', { name: 'Tiếp', exact: true }).first().click();
+  // SPEC 6.6: step 3 has only "Bắt đầu".
+  const btns = async (name) => ob.getByRole('button', { name, exact: true }).filter({ visible: true }).count();
+  check('step 3 has a "Bắt đầu" button', (await btns('Bắt đầu')) === 1, `${await btns('Bắt đầu')}`);
+  check('step 3 has no "Tiếp" and no "Bỏ qua"', (await btns('Tiếp')) === 0 && (await btns('Bỏ qua')) === 0, `Tiếp ${await btns('Tiếp')}, Bỏ qua ${await btns('Bỏ qua')}`);
+  await ob.getByRole('button', { name: 'Bắt đầu', exact: true }).first().click();
   await ob.waitFor({ state: 'hidden' }).catch(() => {});
-  check('the third "Tiếp" closes the onboarding (3 steps)', !(await visible(page, 'onboarding')));
+  check('"Bắt đầu" on step 3 closes the onboarding (3 steps)', !(await visible(page, 'onboarding')));
   check(`finishing saves ${SETTINGS_KEY}`, await hasKey(page));
   const ev = (await events(page)).map((e) => e.type);
   check('event onboarding_done is logged', ev.includes('onboarding_done'), ev.join(','));
@@ -67,6 +70,7 @@ await scenario('skip at step 2', async () => {
   const ctx = await context({ init: CLEAR_ONCE });
   const page = await open(ctx);
   const ob = T(page, 'onboarding').first();
+  await pickOption(page, sel('onboarding'), 'Lớn');
   await ob.getByRole('button', { name: 'Tiếp', exact: true }).first().click();
   await ob.getByRole('button', { name: 'Bỏ qua', exact: true }).first().click();
   await ob.waitFor({ state: 'hidden' }).catch(() => {});
@@ -74,6 +78,8 @@ await scenario('skip at step 2', async () => {
   await reload(page);
   await page.waitForTimeout(800);
   check('after reload it does not show again', !(await visible(page, 'onboarding')));
+  // SPEC 6.6: skipping saves the settings, so the text size chosen on step 1 before skipping at step 2 is kept.
+  check('the text size chosen on step 1 ("Lớn") before skipping at step 2 is kept after reload: 20px', (await rootFont(page)) === '20px', await rootFont(page));
   await ctx.close();
 });
 

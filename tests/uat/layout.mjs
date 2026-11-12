@@ -1,5 +1,5 @@
 // UAT, SPEC 2 + 4 + 6: layout at phone and desktop width, light and dark; target sizes; no horizontal scroll;
-// focus ring; no web font; no English on screen; demo label; phone/desktop split; reduced motion.
+// focus ring; no web font; no English on screen; demo label; phone/desktop split; reduced motion; no camera move after a verdict.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/layout.mjs
 import { browser, DRAW_COUNTER, SAME_PX, canvasShot, pixelDiff, HAI_PHONG, SHOTS, T, check, context, finish, noHScroll, onTop, open, ready, scenario, skipOnboarding, text, url, visible, waitView, waitVisible } from './lib.mjs';
 
@@ -149,16 +149,16 @@ for (const phone of [true, false]) {
 
       // Satellite view.
       await T(page, 'btn-source').first().click();
-      await waitView(page, 'satellite', 8000);
-      await page.waitForTimeout(5500);
+      await waitView(page, 'satellite', 3000);
+      await page.waitForTimeout(1500); // the flight takes 0.8-1.2 s
       bad = await smallTargets(page);
       check(`${tag} in the satellite view, every control (btn-back) is at least 44x44 px`, bad.length === 0, bad.slice(0, 6).join(', '));
       check(`${tag} no horizontal scroll in the satellite view`, await noHScroll(page));
       eng = await englishOnScreen(page);
       check(`${tag} no English UI words on screen in the satellite view`, eng.length === 0, eng.slice(0, 3).join(' | '));
       await T(page, 'btn-back').first().click();
-      await waitView(page, 'map', 8000);
-      await page.waitForTimeout(5500);
+      await waitView(page, 'map', 3000);
+      await page.waitForTimeout(1500);
 
       // Full mode: slider and timeline rows.
       await page.goto(url({ mode: 'full' }));
@@ -189,19 +189,16 @@ await scenario('reduced motion: no running animation with panels open (1440x900)
   const i1 = await canvasShot(page);
   const idle = await pixelDiff(page, i0, i1);
   check('(reduce) with nothing touched, the globe does not move by itself (same image 1 s apart)', idle <= SAME_PX, `${(idle * 100).toFixed(2)} % of pixels changed`);
+  const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
   await T(page, 'btn-check').first().click();
   await waitVisible(page, 'verdict', 15000);
   await page.waitForTimeout(50);
   check('(reduce) no running animation as the verdict opens', (await running()) === 0, `${await running()}`);
-  // SPEC 6.3 step 4: the camera flight to the place is a cut under reduced motion: the globe is already
-  // still 500 ms after the verdict shows (500 ms is our threshold; SPEC gives none).
+  // SPEC 6.3 step 4: no camera move after the verdict (the map view is fixed): the storm marker keeps its place.
   await page.mouse.move(5, 5);
-  await page.waitForTimeout(450);
-  const c0 = await canvasShot(page);
   await page.waitForTimeout(1500);
-  const c1 = await canvasShot(page);
-  const cut = await pixelDiff(page, c0, c1);
-  check('(reduce) the camera move to the place is a cut: the globe is still from 500 ms after the verdict shows', cut <= SAME_PX, `${(cut * 100).toFixed(2)} % of pixels changed between 0.5 s and 2 s`);
+  const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+  check('(reduce) no camera move after the verdict: storm-marker keeps its place (within 1 px)', !!m0 && !!m1 && Math.abs(m0.x - m1.x) <= 1 && Math.abs(m0.y - m1.y) <= 1, `${JSON.stringify(m0)} -> ${JSON.stringify(m1)}`);
   await page.keyboard.press('Escape');
   await T(page, 'assistant-avatar').first().click();
   await waitVisible(page, 'assistant-sheet');

@@ -77,6 +77,11 @@ describe('vite build (SPEC 2)', () => {
     expect(files.filter((f) => /usui-pose[^/]*\.webp$/.test(f)), 'usui-pose .webp').not.toEqual([]);
   });
 
+  it('the build ships the Usui-chan model usui-chan.glb (SPEC 6.8)', () => {
+    const files = filesUnder(OUT);
+    expect(files.filter((f) => /usui-chan[^/]*\.glb$/.test(f)), 'usui-chan .glb').not.toEqual([]);
+  });
+
   it('three.js is in its own chunk, reached only through a dynamic import', () => {
     const entry = Object.keys(manifest).find((k) => manifest[k].isEntry)!;
     const eager = staticClosure(entry);

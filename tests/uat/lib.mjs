@@ -51,6 +51,7 @@ export function url(params = {}) {
  * New browser context. Fresh storage unless `init` says otherwise.
  * phone: 375x812 isMobile + hasTouch; otherwise 1440x900.
  * geo: { latitude, longitude } grants geolocation there; geo: false (default) grants nothing.
+ * init: one init script or an array of them.
  */
 export async function context({ phone = false, geo = false, reducedMotion = 'no-preference', colorScheme = 'light', init, acceptDownloads = false } = {}) {
   const ctx = await browser.newContext({
@@ -62,7 +63,7 @@ export async function context({ phone = false, geo = false, reducedMotion = 'no-
     ...(geo ? { geolocation: geo, permissions: ['geolocation'] } : { permissions: [] }),
   });
   ctx.setDefaultTimeout(5000);
-  if (init) await ctx.addInitScript(init);
+  for (const f of [init].flat()) if (f) await ctx.addInitScript(f);
   return ctx;
 }
 
@@ -477,6 +478,7 @@ export const SAME_PX = 0.005;
  */
 export const DRAW_COUNTER = () => {
   window.__uatDraws = 0;
+  window.__uatDrawBy = new Map(); // canvas (HTMLCanvasElement or OffscreenCanvas) -> draw calls
   for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
     if (!C) continue;
     for (const m of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements']) {
@@ -484,6 +486,7 @@ export const DRAW_COUNTER = () => {
       if (typeof f !== 'function') continue;
       C.prototype[m] = function (...args) {
         window.__uatDraws++;
+        window.__uatDrawBy.set(this.canvas, (window.__uatDrawBy.get(this.canvas) ?? 0) + 1);
         return f.apply(this, args);
       };
     }
@@ -494,6 +497,219 @@ export const DRAW_COUNTER = () => {
     document.dispatchEvent(new Event('visibilitychange'));
   };
 };
+
+/** Draw calls so far on every canvas except the globe's (the largest canvas on the page), e.g. the Usui-chan figure. */
+export const otherDraws = (page) =>
+  page.evaluate(() => {
+    let globe = null;
+    let area = 0;
+    for (const c of document.querySelectorAll('canvas')) {
+      const r = c.getBoundingClientRect();
+      if (r.width * r.height > area) {
+        area = r.width * r.height;
+        globe = c;
+      }
+    }
+    let n = 0;
+    for (const [c, k] of window.__uatDrawBy ?? []) if (c !== globe) n += k;
+    return n;
+  });
+
+// ---- SPEC 6.8: the Usui-chan figure [assistant-figure] and its data-clip ----
+
+/**
+ * Init script: every 40 ms, records the data-clip values of the visible assistant-figure elements in
+ * window.__uatClips as { t (performance.now), clip ("a|b" for several figures), n (figures shown) }, one entry per change.
+ */
+export const CLIP_WATCH = () => {
+  window.__uatClips = [];
+  let last = null;
+  setInterval(() => {
+    const figs = [...document.querySelectorAll('[data-test="assistant-figure"]')].filter((e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden');
+    const v = figs.map((e) => e.getAttribute('data-clip') ?? '').join('|');
+    if (v !== last) {
+      last = v;
+      window.__uatClips.push({ t: performance.now(), clip: v, n: figs.length });
+    }
+  }, 40);
+};
+export const pageNow = (page) => page.evaluate(() => performance.now());
+/** Clip names in a data-clip value: SPEC gives one name, or two played together ("alert" + "talk"), so any separator is read. */
+export const clipTokens = (v) => String(v ?? '').split(/[^A-Za-z]+/).filter(Boolean);
+/** data-clip entries recorded since page time `since` (ms): [{ t: ms after since, clip, tokens }]. */
+export const clipsSince = (page, since) =>
+  page.evaluate((since) => (window.__uatClips ?? []).filter((e) => e.t >= since).map((e) => ({ t: Math.round(e.t - since), clip: e.clip, n: e.n })), since).then((xs) => xs.map((x) => ({ ...x, tokens: clipTokens(x.clip) })));
+/** Wait until a visible figure's data-clip holds every name in `names` (since page time `since`); returns the entries seen. */
+export async function waitClips(page, since, names, timeout = 3000) {
+  const t0 = Date.now();
+  let seen = [];
+  for (;;) {
+    seen = await clipsSince(page, since);
+    const all = new Set(seen.flatMap((e) => e.tokens));
+    if (names.every((n) => all.has(n)) || Date.now() - t0 > timeout) return seen;
+    await page.waitForTimeout(100);
+  }
+}
+export const clipSummary = (seen) => seen.map((e) => `${e.t}ms:${e.clip || '-'}`).join(' ').slice(0, 300);
+
+// ---- SPEC 6.7: satellite close-up ----
+export const satState = (page) => page.evaluate(() => (window.__app.satellite ? { ...window.__app.satellite } : null));
+
+/** Box of the largest visible canvas (the 3D view). */
+export const viewBox = (page) =>
+  page.evaluate(() => {
+    let best = null;
+    for (const c of document.querySelectorAll('canvas')) {
+      const r = c.getBoundingClientRect();
+      if (r.width * r.height > 0 && getComputedStyle(c).visibility !== 'hidden' && (!best || r.width * r.height > best.width * best.height)) best = { x: r.left, y: r.top, width: r.width, height: r.height };
+    }
+    return best;
+  });
+
+/** Touch events through the Chrome DevTools protocol (Playwright has no pinch). points: [[x, y], ...] per step. */
+export async function touchPath(page, steps, stepMs = 16) {
+  const cdp = await page.context().newCDPSession(page);
+  const pts = (ps) => ps.map(([x, y], id) => ({ x, y, id, radiusX: 1, radiusY: 1, force: 1 }));
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(steps[0]) });
+  for (const s of steps.slice(1)) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(s) });
+    await page.waitForTimeout(stepMs);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach();
+}
+/** A two-finger pinch around (cx, cy), the fingers going from d0 to d1 px apart (d1 > d0 spreads them). */
+export function pinch(page, cx, cy, d0, d1, n = 10) {
+  const steps = Array.from({ length: n + 1 }, (_, i) => {
+    const d = (d0 + ((d1 - d0) * i) / n) / 2;
+    return [[cx - d, cy], [cx + d, cy]];
+  });
+  return touchPath(page, steps);
+}
+
+/**
+ * The HUD leaders: every visible SVG line, polyline or path inside [satellite-hud], as its two end points on screen.
+ * SPEC gives the leaders no data-test; the tests read them as SVG geometry (see tests/README.md).
+ */
+export const hudLines = (page) =>
+  page.evaluate(() => {
+    const hud = document.querySelector('[data-test="satellite-hud"]');
+    if (!hud) return [];
+    const out = [];
+    for (const el of hud.querySelectorAll('line, polyline, path')) {
+      if (el.getClientRects().length === 0 || getComputedStyle(el).visibility === 'hidden' || getComputedStyle(el).display === 'none') continue;
+      let op = 1;
+      for (let a = el; a && a !== document.documentElement; a = a.parentElement) op *= Number(getComputedStyle(a).opacity);
+      if (op < 0.05) continue;
+      const m = el.getScreenCTM();
+      if (!m || typeof el.getTotalLength !== 'function') continue;
+      const len = el.getTotalLength();
+      if (!(len > 0)) continue;
+      const p0 = el.getPointAtLength(0);
+      const p1 = el.getPointAtLength(len);
+      const tr = (p) => ({ x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f });
+      out.push([tr(p0), tr(p1)]);
+    }
+    return out;
+  });
+
+/** Boxes of the visible hud-label elements with their text. */
+export const hudLabels = (page) =>
+  page.locator('[data-test="hud-label"]').evaluateAll((ls) =>
+    ls
+      .filter((l) => l.getClientRects().length > 0 && getComputedStyle(l).visibility !== 'hidden')
+      .map((l) => {
+        const r = l.getBoundingClientRect();
+        return { text: l.textContent.replace(/\s+/g, ' ').trim(), x: r.left, y: r.top, width: r.width, height: r.height };
+      }),
+  );
+
+/**
+ * Leaders, matched to labels: a line whose one end is within `near` px of a label's box is that label's leader,
+ * and its other end is the anchor on the model. With `view` (the 3D view's box), a line whose two ends both lie
+ * within 40 px of one corner of the view is a corner bracket, not a leader, and is left out.
+ */
+export function leadersOf(lines, labels, near = 12, view = null) {
+  const dist = (p, b) => Math.hypot(Math.max(b.x - p.x, 0, p.x - (b.x + b.width)), Math.max(b.y - p.y, 0, p.y - (b.y + b.height)));
+  const corners = view ? [[view.x, view.y], [view.x + view.width, view.y], [view.x, view.y + view.height], [view.x + view.width, view.y + view.height]] : [];
+  const bracket = (a, b) => corners.some(([x, y]) => Math.hypot(a.x - x, a.y - y) <= 40 && Math.hypot(b.x - x, b.y - y) <= 40);
+  const out = [];
+  for (const [a, b] of lines) {
+    if (bracket(a, b)) continue;
+    for (const l of labels) {
+      if (dist(a, l) <= near) out.push({ label: l.text, anchor: b });
+      else if (dist(b, l) <= near) out.push({ label: l.text, anchor: a });
+    }
+  }
+  return out;
+}
+
+/**
+ * Init script for timing camera flights: WebGL canvases keep their drawing buffer (preserveDrawingBuffer), so the
+ * page can copy the 3D view while it runs. Page screenshots are too slow (0.3-0.5 s each here) to time a 1 s flight.
+ */
+export const FLIGHT_PROBE = () => {
+  const orig = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+    if (/webgl/.test(String(type))) attrs = { ...(attrs ?? {}), preserveDrawingBuffer: true };
+    return orig.call(this, type, attrs);
+  };
+};
+
+/**
+ * Times a camera flight (needs FLIGHT_PROBE): calls `start`, then every 100 ms for `ms` copies the largest visible canvas
+ * into a 160 x 120 picture and records when __app.view becomes `view`.
+ * Returns { viewMs, steps: [{ from, t, diff }] }: diff is the share of pixels changed (more than 8 in a channel) between
+ * the copies at `from` and `t` (ms after the click). Copies come every 100 ms or later when the page is busy.
+ */
+export async function timeFlight(page, view, start, ms = 2500) {
+  await page.evaluate(({ view, ms }) => {
+    const W = 160;
+    const H = 120;
+    const g = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
+    const st = { t0: performance.now(), viewAt: null, steps: [], done: false };
+    window.__uatFlight = st;
+    let prev = null;
+    const grab = () => {
+      let best = null;
+      for (const c of document.querySelectorAll('canvas')) {
+        const r = c.getBoundingClientRect();
+        if (r.width * r.height > 0 && getComputedStyle(c).visibility !== 'hidden' && (!best || r.width * r.height > best.r.width * best.r.height)) best = { c, r };
+      }
+      if (!best) return null;
+      g.clearRect(0, 0, W, H);
+      g.drawImage(best.c, 0, 0, W, H);
+      return g.getImageData(0, 0, W, H).data;
+    };
+    const tick = () => {
+      const t = performance.now() - st.t0;
+      if (window.__app.view === view && st.viewAt === null) st.viewAt = t;
+      const cur = grab();
+      if (prev && cur) {
+        let n = 0;
+        for (let i = 0; i < cur.length; i += 4) if (Math.abs(cur[i] - prev[i]) > 8 || Math.abs(cur[i + 1] - prev[i + 1]) > 8 || Math.abs(cur[i + 2] - prev[i + 2]) > 8) n++;
+        st.steps.push({ from: Math.round(st.last), t: Math.round(t), diff: n / (W * H) });
+      }
+      prev = cur;
+      st.last = t;
+      if (t < ms) setTimeout(tick, 100);
+      else st.done = true;
+    };
+    prev = grab();
+    st.last = 0;
+    setTimeout(tick, 100);
+    const viewTick = () => {
+      if (window.__app.view === view && st.viewAt === null) st.viewAt = performance.now() - st.t0;
+      if (st.viewAt === null && !st.done) requestAnimationFrame(viewTick);
+    };
+    requestAnimationFrame(viewTick);
+  }, { view, ms });
+  await start();
+  await page.waitForFunction(() => window.__uatFlight.done, null, { timeout: ms + 5000 }).catch(() => {});
+  return page.evaluate(() => ({ viewMs: window.__uatFlight.viewAt, steps: window.__uatFlight.steps }));
+}
+/** Our threshold for "the camera is flying": over 2 % of the 160 x 120 picture changes between two copies. */
+export const MOVING_PX = 0.02;
 
 export async function finish() {
   check('no page errors and no network requests SPEC 2 / 7 forbid', errors.length === 0, errors.slice(0, 3).join(' | '));

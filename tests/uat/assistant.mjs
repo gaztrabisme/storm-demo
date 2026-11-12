@@ -1,6 +1,6 @@
 // UAT, SPEC 6.4: Usui-chan warning pop-up, question sheet and its 7 chips.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/assistant.mjs
-import { CARD_RADIUS, CARD_WIND, TRACK, refWindLevel, url, verdictMismatch, HAI_PHONG, HCM, T, TIME_IN, actionTexts, headAffected, learnCards, norm, check, context, finish, open, runCheck, scenario, skipOnboarding, text, visible, vnTime, waitView, waitVisible } from './lib.mjs';
+import { ACTIONS, ACTIONS_SOURCE, CARD_RADIUS, CARD_WIND, parseKm, TRACK, refWindLevel, url, verdictMismatch, HAI_PHONG, HCM, T, TIME_IN, actionTexts, headAffected, learnCards, norm, check, context, finish, open, runCheck, scenario, skipOnboarding, text, visible, vnTime, waitView, waitVisible } from './lib.mjs';
 
 const CHIPS = {
   affected: 'Nhà tôi có bị ảnh hưởng không?',
@@ -71,6 +71,13 @@ await scenario('warning after an affected verdict, once per session (1440x900)',
   check('the warning does not appear a second time in the session', !(await visible(page, 'assistant-warning')));
   const ev = (await page.evaluate(() => window.__app.events())).filter((e) => e.type === 'assistant_warning_shown').length;
   check('assistant_warning_shown logged exactly once', ev === 1, `${ev}`);
+  // "Once per session": SPEC 7 makes a new session on each page open. A second page in the same browser (same
+  // localStorage, new session) shows the warning again after an affected verdict.
+  const page2 = await open(ctx);
+  await skipOnboarding(page2);
+  await runCheck(page2);
+  await waitVisible(page2, 'assistant-warning', 5000).catch(() => {});
+  check('a new page open (new session, same localStorage) shows the warning again after an affected verdict', await visible(page2, 'assistant-warning'));
   await ctx.close();
 });
 
@@ -122,17 +129,26 @@ await scenario('question sheet and chips', async () => {
   check('chip "when" answer speaks as "mình" to "bạn" and never says "tôi"', voiceOk(aWhen), aWhen);
   check('chip "when" answer: at most two sentences, no emoji', sentences(aWhen) <= 2 && !EMOJI.test(aWhen), aWhen);
 
-  const acts = await actionTexts(page);
-  // The wind-level and radius answers hold each approved line of SPEC 10.1 / 10.2 word for word.
-  const want = { prepare: acts, windlevel: CARD_WIND.body.map(norm), radius: CARD_RADIUS.body.map(norm) };
+  // The prepare answer holds the 3 approved actions of SPEC 10.3; the wind-level and radius answers hold each approved
+  // line of SPEC 10.1 / 10.2 word for word.
+  const want = { prepare: ACTIONS.map(norm), windlevel: CARD_WIND.body.map(norm), radius: CARD_RADIUS.body.map(norm) };
+  const cardOf = { prepare: null, windlevel: CARD_WIND, radius: CARD_RADIUS };
   for (const id of ['prepare', 'windlevel', 'radius']) {
     await clickChip(page, id);
     await page.waitForTimeout(400);
     const a = norm(await answer(page));
     check(`chip "${id}" shows assistant-answer text`, a.length > 0, a.slice(0, 120));
-    const label = id === 'prepare' ? 'the 3 safety actions of verdict-actions' : `each line of the SPEC 10 card "${id === 'windlevel' ? CARD_WIND.title : CARD_RADIUS.title}"`;
+    const label = id === 'prepare' ? 'the 3 safety actions of SPEC 10.3' : `each line of the SPEC 10 card "${cardOf[id].title}"`;
     check(`chip "${id}" answer contains ${label}`, want[id].length > 0 && want[id].every((w) => w.length > 0 && a.includes(w)), `${a.slice(0, 160)} / want ${JSON.stringify(want[id]).slice(0, 160)}`);
     check(`chip "${id}" answer has no emoji`, !EMOJI.test(a));
+    // SPEC 10.5: the answer is built only from 10.1-10.4 and the verdict. With the approved lines (and the card's title
+    // and source line; for prepare, the 10.3 source line) taken out, what is left may only join them. Our threshold:
+    // no digit, at most 15 words.
+    let rest = a;
+    for (const w of [...want[id], ...(cardOf[id] ? [norm(cardOf[id].title), norm(cardOf[id].source)] : [norm(ACTIONS_SOURCE)])]) rest = rest.split(w).join(' ');
+    rest = norm(rest);
+    const words = rest.split(/\s+/).filter((x) => /\p{L}/u.test(x)).length;
+    check(`chip "${id}" answer adds nothing beyond the approved lines (the rest has no digit and at most 15 words)`, !/\d/.test(rest) && words <= 15, JSON.stringify(rest.slice(0, 160)));
   }
 
   await clickChip(page, 'where');
@@ -160,6 +176,41 @@ await scenario('question sheet and chips', async () => {
 
   const chipEvents = (await page.evaluate(() => window.__app.events())).filter((e) => e.type === 'chip').map((e) => e.data?.id);
   check('every chip press is logged as chip { id }', ['when', 'prepare', 'windlevel', 'radius', 'where', 'affected', 'source'].every((id) => chipEvents.includes(id)), chipEvents.join(','));
+  await ctx.close();
+});
+
+// SPEC 6.4: chip "when" answers from the current verdict. For an unaffected place the verdict has no time inside,
+// so the answer gives no time window ("{first} - {last}"), and any time or km it gives is the verdict's closest approach.
+await scenario('chip "when" for an unaffected place (1440x900)', async () => {
+  const ctx = await context({ geo: HCM });
+  const page = await open(ctx);
+  await skipOnboarding(page);
+  await clickChip(page, 'when');
+  await waitVisible(page, 'verdict', 15000).catch(() => {});
+  await page.waitForTimeout(800);
+  await clickChip(page, 'when');
+  await page.waitForTimeout(500);
+  const a = await answer(page);
+  const v = await page.evaluate(() => window.__app.verdict);
+  check('(unaffected) the verdict is unaffected', v?.affected === false, JSON.stringify(v));
+  check('(unaffected) chip "when" shows assistant-answer text', a.length > 0, a);
+  const times = [...a.matchAll(new RegExp(TIME_IN.source, 'g'))].map((m) => m[0]);
+  check('(unaffected) chip "when" gives no time window (at most one time)', times.length <= 1, a);
+  check('(unaffected) any time in the answer is the closest approach time (closest.time, Vietnam time)', !!v?.closest && times.every((t) => t === vnTime(v.closest.time)), `${times.join(', ')} / want ${v?.closest ? vnTime(v.closest.time) : '-'}`);
+  const kms = [...a.matchAll(/(\d[\d.,\s]*?)\s*km/g)].map((m) => parseKm(m[1]));
+  check('(unaffected) any km figure in the answer is the closest distance (within 1 % or 1 km)', !!v?.closest && kms.every((k) => Math.abs(k - v.closest.distanceKm) <= Math.max(1, v.closest.distanceKm * 0.01)), `${kms.join(', ')} / want ${v?.closest?.distanceKm}`);
+  check('(unaffected) chip "when" answer speaks as "mình" to "bạn", at most two sentences, no emoji', voiceOk(a) && sentences(a) <= 2 && !EMOJI.test(a), a);
+  await ctx.close();
+});
+
+// SPEC 6.4: chip "affected" runs the same flow as btn-check, so with location refused the province picker shows.
+await scenario('chip "affected" with location refused shows the province picker', async () => {
+  const ctx = await context({ geo: false });
+  const page = await open(ctx);
+  await skipOnboarding(page);
+  await clickChip(page, 'affected');
+  await waitVisible(page, 'province-picker', 3000).catch(() => {});
+  check('chip "affected" with location refused shows the province picker within 3 s', await visible(page, 'province-picker'));
   await ctx.close();
 });
 

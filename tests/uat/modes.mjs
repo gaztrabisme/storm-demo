@@ -1,6 +1,6 @@
 // UAT, SPEC 6.2 / 6.3 / 6.5 / 7: easy mode (default) and full mode, timeline, knowledge cards, slider log.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/modes.mjs
-import { SAME_PX, canvasShot, centreInside, pixelDiff, CARDS, CARDS_APPROVED, CARD_SAFETY_SECTIONS, CONE, CONE_LEGEND, HAI_PHONG, headAffected, trackAt, waitVisible, NOW_MS, learnCards, PROVINCES, SETTINGS_KEY, T, TIME_RE, TRACK, check, chosenOption, context, events, finish, inSettings, norm, onTop, open, parseKm, pickOption, ready, refVerdict, reload, scenario, sel, skipOnboarding, text, url, visible, vnTime } from './lib.mjs';
+import { SUMMARY_AT_NOW, vtext, TIMELINE_UNAFFECTED_HEADING, SAME_PX, canvasShot, centreInside, pixelDiff, CARDS, CARDS_APPROVED, CARD_SAFETY_SECTIONS, CONE, CONE_LEGEND, HAI_PHONG, headAffected, headUnaffected, pinch, trackAt, waitVisible, NOW_MS, learnCards, PROVINCES, SETTINGS_KEY, T, TIME_RE, TRACK, check, chosenOption, context, events, finish, inSettings, norm, onTop, open, parseKm, pickOption, ready, refVerdict, reload, scenario, sel, skipOnboarding, text, url, visible, vnTime } from './lib.mjs';
 
 const HALF_HOUR = 30 * 60 * 1000;
 const stored = (page) => page.evaluate((k) => localStorage.getItem(k), SETTINGS_KEY);
@@ -59,10 +59,22 @@ async function timelineChecks(page, tag) {
   });
   check(`${tag} affected rows show "{firstInside} – {lastInside}" in Vietnam time`, aff.length > 0 && badA.length === 0, badA.slice(0, 4).map((r) => r.text).join(' | '));
   const badU = un.filter((r) => {
-    const m = r.text.match(/cách (\d[\d.,\s]*?) km/);
+    const m = r.text.match(/tâm bão cách (\d[\d.,\s]*?) km/);
     return !m || !near(parseKm(m[1]), distOf(r), Math.max(1, distOf(r) * 0.01));
   });
-  check(`${tag} unaffected rows show "cách {km} km" with the closest distance`, badU.length === 0, badU.slice(0, 4).map((r) => `${r.text} (want ~${Math.round(distOf(r))})`).join(' | '));
+  check(`${tag} unaffected rows show "tâm bão cách {km} km" with the closest distance`, badU.length === 0, badU.slice(0, 4).map((r) => `${r.text} (want ~${Math.round(distOf(r))})`).join(' | '));
+
+  // SPEC 6.3: the unaffected rows come under the sub-heading "Không có gió từ cấp 8 trở lên".
+  const sub = await T(page, 'timeline').first().evaluate((tl, h) => {
+    const norm = (s) => (s ?? '').replace(/\s+/g, ' ').trim();
+    const el = [...tl.querySelectorAll('*')].find((e) => norm(e.textContent) === h && !e.closest('[data-test="timeline-row"]'));
+    const firstUn = tl.querySelector('[data-test="timeline-row"][data-affected="false"]');
+    const lastAff = [...tl.querySelectorAll('[data-test="timeline-row"][data-affected="true"]')].pop();
+    if (!el) return { found: false };
+    const r = el.getBoundingClientRect();
+    return { found: true, aboveUn: !firstUn || r.top <= firstUn.getBoundingClientRect().top, belowAff: !lastAff || r.top >= lastAff.getBoundingClientRect().top };
+  }, TIMELINE_UNAFFECTED_HEADING);
+  check(`${tag} the sub-heading "${TIMELINE_UNAFFECTED_HEADING}" is in the timeline, after the affected rows and before the unaffected ones`, sub.found && sub.aboveUn && sub.belowAff, JSON.stringify(sub));
 
   // Tapping a row selects that province as the place.
   const first = known[0];
@@ -73,6 +85,19 @@ async function timelineChecks(page, tag) {
   const v = await page.evaluate(() => window.__app.verdict);
   const want = first?.ref.a.affected ? first.ref.a : first?.ref.b;
   check(`${tag} after tapping the row, __app.verdict is that province's verdict`, v?.affected === true && !!want && near(new Date(v.firstInside).getTime(), want.firstInside, HALF_HOUR), JSON.stringify(v));
+
+  // Tapping an unaffected row selects that province too: an unaffected verdict for it.
+  const unIdx = named.findIndex((r) => r.aff === 'false' && r.ref);
+  const unRow = unIdx >= 0 ? named[unIdx] : null;
+  check(`${tag} the timeline has an unaffected row to tap`, !!unRow);
+  if (unRow) {
+    await page.keyboard.press('Escape'); // the warning pop-up, if open
+    await T(page, 'timeline-row').nth(unIdx).click();
+    await page.waitForFunction((n) => (document.querySelector('[data-test="verdict-head"]')?.textContent ?? '').includes(n), unRow.ref.p.name, { timeout: 10000 }).catch(() => {});
+    const head2 = await text(page, 'verdict-head');
+    const aff2 = await T(page, 'verdict').first().getAttribute('data-affected').catch(() => null);
+    check(`${tag} tapping the unaffected row ${unRow.ref.p.name} shows verdict-head "${headUnaffected(unRow.ref.p.name)}" and data-affected="false"`, head2 === headUnaffected(unRow.ref.p.name) && aff2 === 'false', `${head2} / ${aff2}`);
+  }
 }
 
 async function sliderInput(page) {
@@ -105,6 +130,8 @@ async function fullModeChecks(page, tag) {
   await input.fill(String(max));
   await page.waitForTimeout(300);
   const r1 = await text(page, 'time-readout');
+  const sum = await vtext(page, 'storm-summary').catch(() => '');
+  check(`${tag} with the slider at the end, storm-summary still describes now: "${SUMMARY_AT_NOW}"`, sum === SUMMARY_AT_NOW, sum);
   check(`${tag} moving the slider to the end updates time-readout to the last point (19:00, 09/09)`, r1 !== r0 && (r1 === '19:00, 09/09' || r1.endsWith('19:00, 09/09')), `${r0} -> ${r1}`);
   await input.fill(String(min));
   await page.waitForTimeout(300);
@@ -158,7 +185,7 @@ await scenario('easy mode is the default (375x812)', async () => {
   }
   const lo = await learnOpens();
   check('(375) opening the knowledge cards logs learn_open with a non-empty { card }', lo.length > 0 && lo.every((e) => e.data && e.data.card !== undefined && e.data.card !== null && String(e.data.card).length > 0), JSON.stringify(lo));
-  // SPEC 6.2 easy mode: the marker shows the storm at now and the camera is locked, so the marker stays put.
+  // SPEC 6.2 easy mode: the marker shows the storm at now and the view is fixed, so the marker stays put.
   const g = await T(page, 'globe').first().boundingBox().catch(() => null);
   const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
   check('(375) storm-marker is visible and sits inside the globe', (await visible(page, 'storm-marker')) && centreInside(m0, g), `${JSON.stringify(m0)} in ${JSON.stringify(g)}`);
@@ -257,14 +284,15 @@ await scenario('?mode=easy overrides a saved "Đầy đủ" for one load, not sa
   await ctx.close();
 });
 
-// SPEC 6.2: full mode, drag rotates and scroll zooms; easy mode, the camera is locked over Vietnam.
-// Run under reduced motion so the only thing that can change the globe image is the input itself.
+// SPEC 6.2: the map view is fixed in both modes: no drag, no scroll or pinch zoom, no camera moves.
+// Run under reduced motion so the only thing that could change the globe image is the input itself.
 async function dragAndWheel(page) {
   const g = await T(page, 'globe').first().boundingBox();
   const cx = g.x + g.width / 2;
   const cy = g.y + g.height / 2;
   await page.mouse.move(5, 5);
   await page.waitForTimeout(500);
+  const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
   const a = await canvasShot(page);
   await page.mouse.move(cx, cy);
   await page.mouse.down();
@@ -278,23 +306,122 @@ async function dragAndWheel(page) {
   await page.mouse.move(5, 5);
   await page.waitForTimeout(1000);
   const c = await canvasShot(page);
-  return { drag: await pixelDiff(page, a, b), wheel: await pixelDiff(page, b, c) };
+  const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+  return { drag: await pixelDiff(page, a, b), wheel: await pixelDiff(page, b, c), m0, m1 };
 }
 
 for (const mode of ['easy', 'full']) {
-  await scenario(`globe input in ${mode} mode (1440x900, reduced motion)`, async () => {
+  await scenario(`the map ignores drag and scroll in ${mode} mode (1440x900, reduced motion)`, async () => {
     const ctx = await context({ reducedMotion: 'reduce' });
     const page = await open(ctx, url({ mode }));
     await skipOnboarding(page);
     await page.waitForTimeout(1000);
     const d = await dragAndWheel(page);
-    if (mode === 'full') {
-      check('(full) dragging the globe changes the view (rotates)', d.drag > SAME_PX, `${(d.drag * 100).toFixed(2)} % of pixels changed`);
-      check('(full) scrolling over the globe changes the view (zooms)', d.wheel > SAME_PX, `${(d.wheel * 100).toFixed(2)} % of pixels changed`);
-    } else {
-      check('(easy) dragging the globe does not move the camera', d.drag <= SAME_PX, `${(d.drag * 100).toFixed(2)} % of pixels changed`);
-      check('(easy) scrolling over the globe does not move the camera', d.wheel <= SAME_PX, `${(d.wheel * 100).toFixed(2)} % of pixels changed`);
+    check(`(${mode}) dragging the globe does not move the view (same image)`, d.drag <= SAME_PX, `${(d.drag * 100).toFixed(2)} % of pixels changed`);
+    check(`(${mode}) scrolling over the globe does not zoom (same image)`, d.wheel <= SAME_PX, `${(d.wheel * 100).toFixed(2)} % of pixels changed`);
+    check(`(${mode}) storm-marker is in the same place after the drag and the scroll (within 1 px)`, !!d.m0 && !!d.m1 && Math.abs(d.m0.x - d.m1.x) <= 1 && Math.abs(d.m0.y - d.m1.y) <= 1, `${JSON.stringify(d.m0)} -> ${JSON.stringify(d.m1)}`);
+    await ctx.close();
+  });
+}
+
+// SPEC 6.2: the storm marker is at the selected time's track position. The tests place a pin (__app.setPlace) at the
+// track position for that time, from yagi.json (linear in lat/lon, SPEC 5.1), and compare it with the marker on
+// screen. SPEC does not say which point of the pin's box marks the place (its centre or a tip), so the check is: the
+// marker's centre lies inside the pin's box (8 px margin), and the offset from the pin's centre to the marker's centre
+// is the same, within 4 px, at each time (our thresholds).
+const centreOf = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+async function markerAtTrack(page, tag, slider, times) {
+  const offsets = [];
+  for (const [label, ms] of times) {
+    if (slider) {
+      const { min } = await slider.evaluate((e) => ({ min: +e.min }));
+      const step = +((await slider.getAttribute('step')) ?? 1) || 1;
+      await slider.fill(String(min + Math.round((ms - Date.parse(TRACK.points[0].t)) / (3 * 3600 * 1000)) * step));
+      await page.waitForTimeout(400);
     }
+    const at = trackAt(TRACK, ms);
+    await page.evaluate((p) => window.__app.setPlace(p.lat, p.lon, 'Tâm bão'), at);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('Escape'); // the warning pop-up, if open
+    const m = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+    const pin = await T(page, 'place-pin').first().boundingBox().catch(() => null);
+    const c = m ? centreOf(m) : null;
+    const ok = !!c && !!pin && c.x >= pin.x - 8 && c.x <= pin.x + pin.width + 8 && c.y >= pin.y - 8 && c.y <= pin.y + pin.height + 8;
+    check(`${tag} at ${label}, storm-marker sits on a pin placed at the track position for that time (marker centre inside the pin's box, 8 px margin)`, ok, `marker ${JSON.stringify(m)} pin ${JSON.stringify(pin)} track ${at?.lat?.toFixed(2)}, ${at?.lon?.toFixed(2)}`);
+    if (c && pin) offsets.push({ label, dx: c.x - centreOf(pin).x, dy: c.y - centreOf(pin).y });
+  }
+  if (times.length > 1) {
+    const spread = offsets.length === times.length ? Math.max(...offsets.flatMap((a) => offsets.map((b) => Math.hypot(a.dx - b.dx, a.dy - b.dy)))) : Infinity;
+    check(`${tag} the marker-to-pin offset is the same at each time (within 4 px)`, spread <= 4, JSON.stringify(offsets));
+  }
+}
+await scenario('the storm marker is at the track position for the selected time (1440x900, full and easy, reduced motion)', async () => {
+  const ctx = await context({ reducedMotion: 'reduce' });
+  const page = await open(ctx, url({ mode: 'full' }));
+  await skipOnboarding(page);
+  if (!TRACK) return check('yagi.json loads', false);
+  const last = Date.parse(TRACK.points[TRACK.points.length - 1].t);
+  await markerAtTrack(page, '(full)', await sliderInput(page), [['now', NOW_MS], ['now + 24 h', NOW_MS + 24 * 3600 * 1000], ['the last point', last]]);
+  await page.goto(url({ mode: 'easy' }));
+  await ready(page);
+  await markerAtTrack(page, '(easy)', null, [['now', NOW_MS]]);
+  await ctx.close();
+});
+
+// SPEC 6.2: no pinch zoom on the map. A two-finger pinch over the globe on a phone leaves the image and the marker.
+await scenario('the map ignores a pinch (375x812 touch, reduced motion)', async () => {
+  const ctx = await context({ phone: true, reducedMotion: 'reduce' });
+  const page = await open(ctx);
+  await skipOnboarding(page);
+  await page.waitForTimeout(1000);
+  const g = await T(page, 'globe').first().boundingBox();
+  const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+  const a = await canvasShot(page);
+  await pinch(page, g.x + g.width / 2, g.y + g.height / 2, 60, 220);
+  await page.waitForTimeout(1000);
+  const b = await canvasShot(page);
+  const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+  const d = await pixelDiff(page, a, b);
+  check('(375) a pinch over the globe does not zoom (same image)', d <= SAME_PX, `${(d * 100).toFixed(2)} % of pixels changed`);
+  check('(375) storm-marker is in the same place after the pinch (within 1 px)', !!m0 && !!m1 && Math.abs(m0.x - m1.x) <= 1 && Math.abs(m0.y - m1.y) <= 1, `${JSON.stringify(m0)} -> ${JSON.stringify(m1)}`);
+  await ctx.close();
+});
+
+// SPEC 6.2: the fixed view frames the whole track and all of Vietnam for the current layout.
+// Vietnam's four extreme points (our choice of test points): north, south, east and west.
+const VN_EDGES = [
+  { name: 'cực Bắc', lat: 23.39, lon: 105.32 },
+  { name: 'cực Nam', lat: 8.56, lon: 104.82 },
+  { name: 'cực Đông', lat: 12.65, lon: 109.46 },
+  { name: 'cực Tây', lat: 22.4, lon: 102.14 },
+];
+for (const phone of [true, false]) {
+  const tag = phone ? '(375 frame)' : '(1440 frame)';
+  await scenario(`the fixed view frames the track and Vietnam ${tag}`, async () => {
+    const ctx = await context({ phone, reducedMotion: 'reduce' });
+    const page = await open(ctx, url({ mode: 'full' }));
+    await skipOnboarding(page);
+    const g = await T(page, 'globe').first().boundingBox().catch(() => null);
+    const input = await sliderInput(page);
+    const { min, max, value } = await input.evaluate((e) => ({ min: +e.min, max: +e.max, value: +e.value }));
+    const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+    for (const [label, v] of [['first', min], ['last', max]]) {
+      await input.fill(String(v));
+      await page.waitForTimeout(400);
+      const m = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+      check(`${tag} with the slider at the ${label} track point, storm-marker sits inside the globe`, (await visible(page, 'storm-marker')) && centreInside(m, g), `${JSON.stringify(m)} in ${JSON.stringify(g)}`);
+    }
+    await input.fill(String(value));
+    await page.waitForTimeout(400);
+    for (const p of VN_EDGES) {
+      await page.evaluate((p) => window.__app.setPlace(p.lat, p.lon, p.name), p);
+      await page.waitForTimeout(800);
+      const pin = await T(page, 'place-pin').first().boundingBox().catch(() => null);
+      check(`${tag} a place at Vietnam's ${p.name} (${p.lat}, ${p.lon}) puts place-pin inside the globe`, (await visible(page, 'place-pin')) && centreInside(pin, g), `${JSON.stringify(pin)} in ${JSON.stringify(g)}`);
+    }
+    await page.keyboard.press('Escape');
+    const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
+    check(`${tag} after four verdicts the view has not moved (storm-marker at the same place, within 1 px)`, !!m0 && !!m1 && Math.abs(m0.x - m1.x) <= 1 && Math.abs(m0.y - m1.y) <= 1, `${JSON.stringify(m0)} -> ${JSON.stringify(m1)}`);
     await ctx.close();
   });
 }
