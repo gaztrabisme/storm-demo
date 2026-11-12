@@ -5,7 +5,7 @@ import type { Store } from '../state';
 import { h } from './dom';
 
 export function satelliteInfo(store: Store, actions: Actions): HTMLElement {
-  const back = h('button', { test: 'btn-back', class: 'btn btn--primary', type: 'button', text: t('satellite.back'), onclick: () => actions.closeSatellite() });
+  const back = h('button', { test: 'btn-back', class: 'btn', type: 'button', text: t('satellite.back'), onclick: () => actions.closeSatellite() });
   const head = h('h2', { class: 'panel__h', id: 'sat-head', text: t('satellite.heading') });
   const el = h(
     'section',

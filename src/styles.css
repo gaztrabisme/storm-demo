@@ -212,8 +212,8 @@ p {
    leave the band it sits in). */
 .globe__bottom {
   position: absolute;
-  right: 24px;
-  bottom: 30px;
+  right: 12px;
+  bottom: 12px;
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -471,8 +471,9 @@ p {
 
 /* ---- Map key: the worked specimen (ui/key.ts) ----
    The glyph at the map's scale on the left; its four notes in one left-aligned italic column on the right,
-   joined by fine leaders; the dot sizes under the column. A hairline above it holds it apart from the map. No
-   box: the notes carry a halo in the ground colour. */
+   joined by fine leaders; the dot sizes under the column. On a desktop it is a key inset in the map's lower
+   right corner: paper fill, 1 px hairline frame, square corners, no shadow, so it never reads as a second
+   storm over land or the track. Its wind area is paler than the live one (outline and 8 % fill). */
 .key {
   position: relative;
   margin: 0;
@@ -489,9 +490,12 @@ p {
 
 
 .globe .key {
-  width: min(500px, 100%);
-  padding-top: 14px;
-  border-top: 1px solid var(--coast);
+  width: min(520px, 100%);
+  padding: 12px 16px 14px;
+  background: var(--paper);
+  border: 1px solid var(--coast);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .view-satellite .key {
@@ -583,7 +587,7 @@ p {
 }
 
 .key__wind {
-  fill: color-mix(in srgb, var(--accent) var(--wind-alpha), transparent);
+  fill: color-mix(in srgb, var(--accent) 8%, transparent);
   stroke: var(--accent);
   stroke-width: 1px;
   stroke-linejoin: round;
@@ -729,29 +733,21 @@ body::after {
   box-shadow: inset 0 0 0 1px var(--ink);
 }
 
-/* Header links and the ask control after a verdict: underlined text, square 44 px target, no box. */
-.btn--bar,
-.btn--link {
+/* Header links: underlined text, square 44 px target, no box. */
+.btn--bar {
   border-color: transparent;
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
 }
 
-.btn--bar:hover,
-.btn--link:hover {
+.btn--bar:hover {
   box-shadow: none;
   text-decoration-thickness: 2px;
 }
 
 .btn--bar {
   padding: 8px 8px;
-}
-
-.btn--link {
-  align-self: flex-start;
-  padding: 8px 0;
-  text-align: left;
 }
 
 .btn--primary {
@@ -971,10 +967,6 @@ select {
 .verdict .btn {
   align-self: flex-start;
   margin-top: 4px;
-}
-
-.check .btn--link {
-  font-size: 1.0625rem;
 }
 
 .actions,
