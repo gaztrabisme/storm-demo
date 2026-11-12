@@ -627,10 +627,10 @@ p {
   overscroll-behavior: contain;
 }
 
-/* Usui-chan's corner. While her warning shows, a strip of ground under the panel holds it, so the bubble never
-   sits on the verdict (assistant/index.ts sets --foot-h to the bubble's height). Otherwise the panel runs to
-   the bottom, ends in a short fade that shows the list goes on, and leaves room under its last line for her
-   portrait. */
+/* Usui-chan's corner. On a phone, while her warning shows, a strip of ground under the panel holds it, so the
+   bubble never sits on the verdict (assistant/index.ts sets --foot-h to the bubble's height). On a desktop the
+   bubble sits on the map instead (main.ts), so there is no strip. Otherwise the panel runs to the bottom, ends
+   in a short fade that shows the list goes on, and leaves room under its last line for her portrait. */
 body::after {
   content: '';
   position: fixed;
@@ -664,10 +664,12 @@ body::after {
     border-left: 1px solid var(--ink);
   }
 
+  .panel {
+    margin-bottom: 0;
+  }
+
   body::after {
-    left: auto;
-    width: var(--panel-w);
-    border-left: 1px solid var(--ink);
+    display: none;
   }
 }
 
@@ -676,8 +678,9 @@ body::after {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* Room under the last line for Usui-chan's portrait (56 px, 16 px from the edge) and the fade. */
-  padding: 18px 20px 96px;
+  /* Room under the last line for Usui-chan's portrait (56 px, 16 px from the edge) and the fade, so the last
+     line can always scroll clear of her. */
+  padding: 18px 20px calc(56px + 16px + 40px);
 }
 
 .panel__main > .key {

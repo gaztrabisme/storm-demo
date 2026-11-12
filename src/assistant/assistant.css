@@ -52,7 +52,7 @@
   border-color: var(--ink);
 }
 
-/* ---- Warning: a speech bubble from the portrait, in Usui-chan's corner under the panel (outside the map).
+/* ---- Warning: a speech bubble from the portrait. Phone: in Usui-chan's corner under the panel (outside the map).
    Paper with a 1 px ink edge (DESIGN 5); a small square tail points at the portrait. */
 .assistant-warning {
   position: fixed;
@@ -89,6 +89,18 @@
   align-self: center;
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* Desktop: the bubble sits on the map, in its lower right corner above the key inset (main.ts moves it into
+   .globe__bottom), so it never covers the panel. It is too far from the portrait for a tail. */
+.globe .assistant-warning {
+  position: static;
+  width: min(330px, 100%);
+  margin-bottom: 12px;
+}
+
+.globe .assistant-warning::after {
+  display: none;
 }
 
 /* ---- Question sheet, above the portrait. */

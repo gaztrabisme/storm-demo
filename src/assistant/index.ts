@@ -54,7 +54,7 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     if (hadFocus) avatar.focus({ preventScroll: true });
   };
   /**
-   * While the warning shows, the page keeps a strip of ground at the bottom (under the panel) that holds the
+   * On a phone, while the warning shows, the page keeps a strip of ground at the bottom (under the panel) that holds the
    * bubble and the portrait, so the bubble never sits on the verdict it follows (styles.css, --foot-h).
    */
   const syncFoot = () => {

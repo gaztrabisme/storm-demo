@@ -50,9 +50,14 @@ const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, act
 
 // Desktop: the key sits on the map, in the open sea at the lower right. Phone: it folds under the map, at the
 // top of the panel, so the reader meets the key before the controls (DESIGN 2).
+// Usui-chan's warning bubble: on a desktop it sits on the map above the key, so it never covers the panel; on a
+// phone it stays in her corner under the panel.
 const placeKey = (wide: boolean) => {
-  if (wide) globeBottom.append(key.el);
-  else panelMain.prepend(key.el);
+  if (wide) globeBottom.append(usui.warning, key.el);
+  else {
+    panelMain.prepend(key.el);
+    usui.root.prepend(usui.warning);
+  }
 };
 try {
   const wideMq = window.matchMedia('(min-width: 900px)');
