@@ -214,6 +214,9 @@
   "map": {
     "wind": "Vùng gió từ cấp 8 trở lên",
     "past": "Đã đi qua",
-    "forecast": "Dự báo"
+    "forecast": "Dự báo",
+    "level": "cấp {n}",
+    "hours": "{h} giờ",
+    "orbit": "{km} km"
   }
 }

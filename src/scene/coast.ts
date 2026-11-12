@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import world from '../data/generated/coast-110m.json';
 import vn from '../data/generated/coast-10m-vn.json';
-import { SCENE } from './colors';
+import type { EarthPalette } from './colors';
 
 type Rings = number[][];
 
@@ -14,9 +14,40 @@ export const REGION = vn.region as { west: number; east: number; south: number; 
 
 type Project = (lon: number, lat: number) => [number, number];
 
-function drawRings(ctx: CanvasRenderingContext2D, rings: Rings, project: Project, fill: string, stroke: string, lineWidth: number): void {
+function drawRings(ctx: CanvasRenderingContext2D, rings: Rings, project: Project, fill: string, stroke: string, lineWidth: number, wrap = false): void {
   ctx.beginPath();
   for (const ring of rings) {
+    // On the whole-globe texture a ring that crosses the 180th meridian is unwrapped (its longitudes made
+    // continuous) and drawn again one turn east and west, so it never paints a band across the map.
+    const shifts = [0];
+    if (wrap) {
+      let off = 0;
+      let min = Infinity;
+      let max = -Infinity;
+      const lons: number[] = [];
+      for (let i = 0; i < ring.length; i += 2) {
+        if (i > 0) {
+          const d = ring[i] + off - lons[lons.length - 1];
+          if (d > 180) off -= 360;
+          else if (d < -180) off += 360;
+        }
+        const l = ring[i] + off;
+        lons.push(l);
+        min = Math.min(min, l);
+        max = Math.max(max, l);
+      }
+      if (min < -180) shifts.push(360);
+      if (max > 180) shifts.push(-360);
+      for (const sh of shifts) {
+        for (let i = 0; i < ring.length; i += 2) {
+          const [x, y] = project(lons[i / 2] + sh, ring[i + 1]);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+      }
+      continue;
+    }
     for (let i = 0; i < ring.length; i += 2) {
       const [x, y] = project(ring[i], ring[i + 1]);
       if (i === 0) ctx.moveTo(x, y);
@@ -32,23 +63,6 @@ function drawRings(ctx: CanvasRenderingContext2D, rings: Rings, project: Project
   ctx.stroke();
 }
 
-function grid(ctx: CanvasRenderingContext2D, project: Project, w: number, h: number, west: number, east: number, south: number, north: number, lineWidth: number): void {
-  ctx.strokeStyle = SCENE.grid;
-  ctx.lineWidth = lineWidth;
-  ctx.beginPath();
-  for (let lon = Math.ceil(west / 10) * 10; lon <= east; lon += 10) {
-    const [x] = project(lon, 0);
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, h);
-  }
-  for (let lat = Math.ceil(south / 10) * 10; lat <= north; lat += 10) {
-    const [, y] = project(0, lat);
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-  }
-  ctx.stroke();
-}
-
 function canvasTexture(c: HTMLCanvasElement): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -57,7 +71,7 @@ function canvasTexture(c: HTMLCanvasElement): THREE.CanvasTexture {
 }
 
 /** Whole-globe texture, equirectangular, longitude -180 at u = 0 (matches THREE.SphereGeometry). */
-export function worldTexture(): THREE.CanvasTexture {
+export function worldTexture(pal: EarthPalette): THREE.CanvasTexture {
   const w = 2048;
   const h = 1024;
   const c = document.createElement('canvas');
@@ -70,17 +84,9 @@ export function worldTexture(): THREE.CanvasTexture {
     pt[1] = ((90 - lat) / 180) * h;
     return pt;
   };
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, SCENE.oceanTop);
-  g.addColorStop(0.5, SCENE.oceanMid);
-  g.addColorStop(1, SCENE.oceanTop);
-  ctx.fillStyle = g;
+  ctx.fillStyle = pal.sea;
   ctx.fillRect(0, 0, w, h);
-  drawRings(ctx, world as Rings, project, SCENE.land, SCENE.coast, 1);
-  ctx.fillStyle = SCENE.ice;
-  ctx.fillRect(0, 0, w, h * 0.03);
-  ctx.fillRect(0, h * 0.95, w, h * 0.05);
-  grid(ctx, project, w, h, -180, 180, -80, 80, 1);
+  drawRings(ctx, world as Rings, project, pal.land, pal.coast, 0.6, true);
   return canvasTexture(c);
 }
 
@@ -88,7 +94,7 @@ export function worldTexture(): THREE.CanvasTexture {
  * Texture for the REGION patch, from 10m data. Its edges fade out over one degree, so the patch blends
  * into the 110m globe under it.
  */
-export function regionTexture(): THREE.CanvasTexture {
+export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
   const { west, east, south, north } = REGION;
   const size = 2048;
   const c = document.createElement('canvas');
@@ -103,14 +109,9 @@ export function regionTexture(): THREE.CanvasTexture {
     pt[1] = (north - lat) * sy;
     return pt;
   };
-  // The ocean gradient of the globe texture, sampled at the patch's latitudes.
-  const g = ctx.createLinearGradient(0, 0, 0, size);
-  g.addColorStop(0, lerpHex(SCENE.oceanMid, SCENE.oceanTop, Math.abs(north) / 90));
-  g.addColorStop(1, lerpHex(SCENE.oceanMid, SCENE.oceanTop, Math.abs(south) / 90));
-  ctx.fillStyle = g;
+  ctx.fillStyle = pal.sea;
   ctx.fillRect(0, 0, size, size);
-  drawRings(ctx, vn.rings as Rings, project, SCENE.land, SCENE.coast, 1.25);
-  grid(ctx, project, size, size, west, east, south, north, 2);
+  drawRings(ctx, vn.rings as Rings, project, pal.land, pal.coast, 1.6);
   // Fade the edges to transparent.
   const fade = sx; // one degree
   ctx.globalCompositeOperation = 'destination-out';
@@ -129,25 +130,51 @@ export function regionTexture(): THREE.CanvasTexture {
   return canvasTexture(c);
 }
 
-/** Mix two #rrggbb colours (k in 0..1). */
-function lerpHex(a: string, b: string, k: number): string {
-  const t = Math.max(0, Math.min(1, k));
-  const pa = parseInt(a.slice(1), 16);
-  const pb = parseInt(b.slice(1), 16);
-  let out = '#';
-  for (const shift of [16, 8, 0]) {
-    const va = (pa >> shift) & 255;
-    const vb = (pb >> shift) & 255;
-    out += Math.round(va + (vb - va) * t)
-      .toString(16)
-      .padStart(2, '0');
-  }
-  return out;
-}
-
 /** Sphere patch geometry covering REGION, in the same frame as THREE.SphereGeometry and vec() in boot.ts. */
 export function regionGeometry(radius: number): THREE.SphereGeometry {
   const RAD = Math.PI / 180;
   const { west, east, south, north } = REGION;
   return new THREE.SphereGeometry(radius, 96, 96, (west + 180) * RAD, (east - west) * RAD, (90 - north) * RAD, (north - south) * RAD);
+}
+
+/**
+ * Land or sea at a point, from the same coast data: the 10m region at 0.05 degree, the 110m globe at
+ * 0.5 degree elsewhere. Used to keep map notes and date labels in open sea.
+ */
+export function landMask(): (lat: number, lon: number) => boolean {
+  const paint = (rings: Rings, w: number, h: number, wrap: boolean, project: Project): Uint8ClampedArray => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    drawRings(ctx, rings, project, '#000', 'rgba(0,0,0,0)', 0, wrap);
+    return ctx.getImageData(0, 0, w, h).data;
+  };
+  const { west, east, south, north } = REGION;
+  const RS = 20; // cells per degree in the region
+  const rw = (east - west) * RS;
+  const rh = (north - south) * RS;
+  const rpt: [number, number] = [0, 0];
+  const region = paint(vn.rings as Rings, rw, rh, false, (lon, lat) => {
+    rpt[0] = (lon - west) * RS;
+    rpt[1] = (north - lat) * RS;
+    return rpt;
+  });
+  const wpt: [number, number] = [0, 0];
+  const globe = paint(world as Rings, 720, 360, true, (lon, lat) => {
+    wpt[0] = (lon + 180) * 2;
+    wpt[1] = (90 - lat) * 2;
+    return wpt;
+  });
+  return (lat, lon) => {
+    if (lon >= west && lon < east && lat > south && lat <= north) {
+      const x = Math.floor((lon - west) * RS);
+      const y = Math.floor((north - lat) * RS);
+      return region[(y * rw + x) * 4 + 3] > 127;
+    }
+    const L = ((((lon + 180) % 360) + 360) % 360);
+    const x = Math.min(719, Math.floor(L * 2));
+    const y = Math.min(359, Math.max(0, Math.floor((90 - lat) * 2)));
+    return globe[(y * 720 + x) * 4 + 3] > 127;
+  };
 }

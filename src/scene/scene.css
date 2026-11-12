@@ -1,4 +1,4 @@
-/* Province names on the globe (full mode). Owned by the lazy globe chunk. */
+/* Province names on the globe (full mode). Owned by the lazy globe chunk. No boxes: a halo in the ground colour. */
 .globe__labels {
   position: absolute;
   inset: 0;
@@ -12,12 +12,12 @@
   left: 0;
   top: 0;
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   line-height: 1.2;
-  color: var(--globe-text);
+  color: var(--ink);
   text-shadow:
-    0 0 2px var(--globe-bg),
-    0 0 3px var(--globe-bg),
-    0 0 4px var(--globe-bg);
+    0 0 2px var(--paper),
+    0 0 2px var(--paper),
+    0 0 3px var(--paper);
   will-change: transform;
 }

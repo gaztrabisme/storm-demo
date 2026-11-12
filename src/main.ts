@@ -9,6 +9,7 @@ import { modeOf, themeOf } from './state';
 import { vnTime } from './storm/format';
 import { h } from './ui/dom';
 import { showOnboarding } from './ui/onboarding';
+import { mapKey } from './ui/key';
 import { checkBlock, learnBlock, stormSummary, timelineList, timeSlider, verdictCard } from './ui/panel';
 import { satelliteInfo } from './ui/satellite';
 import { bindAppearance, settingsDialog } from './ui/settings';
@@ -28,13 +29,11 @@ const topbar = h('header', { class: 'topbar' }, h('h1', { test: 'title', class: 
 
 const loading = h('p', { class: 'globe__loading', text: t('app.loading') });
 const demoLabel = h('p', { test: 'demo-label', class: 'globe__demo', text: t('demo.label', { now: vnTime(NOW_MS) }) });
-// What the red area and the two track lines mean (the circles have their own legend below).
-const keyItem = (swatch: string, label: string) => h('span', { class: 'globe__key-item' }, h('span', { class: `globe__swatch globe__swatch--${swatch}`, 'aria-hidden': 'true' }), label);
-const mapKey = h('p', { class: 'globe__key' }, keyItem('wind', t('map.wind')), keyItem('past', t('map.past')), keyItem('forecast', t('map.forecast')));
-const coneLegend = h('p', { test: 'cone-legend', class: 'globe__legend' }, h('span', { class: 'globe__legend-ring', 'aria-hidden': 'true' }), t('cone.legend'));
+// The map key: a worked specimen of the track glyphs with the legend lines (ui/key.ts).
+const key = mapKey();
 const usui = assistant(store, actions);
-// Bottom of the globe: the warning pop-up (when shown), then the map key and the circle legend.
-const globeBottom = h('div', { class: 'globe__bottom' }, usui.warning, mapKey, coneLegend);
+// Bottom of the globe: the warning pop-up (when shown), then, on a desktop, the map key in the open sea.
+const globeBottom = h('div', { class: 'globe__bottom' }, usui.warning);
 const globeEl = h('section', { test: 'globe', class: 'globe', 'aria-label': t('app.globe') }, loading, demoLabel, globeBottom);
 
 const panelMain = h(
@@ -48,6 +47,19 @@ const panelMain = h(
   learnBlock(store),
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
+
+// Desktop: the key sits on the map, lower right. Phone: it folds under the map, at the end of the panel.
+const placeKey = (wide: boolean) => {
+  if (wide) globeBottom.append(key.el);
+  else panelMain.append(key.el);
+};
+try {
+  const wideMq = window.matchMedia('(min-width: 900px)');
+  placeKey(wideMq.matches);
+  wideMq.addEventListener('change', (e) => placeKey(e.matches));
+} catch {
+  placeKey(true);
+}
 document.getElementById('app')?.replaceChildren(topbar, globeEl, panel, usui.root, settings.el);
 
 // Esc leaves the satellite view (dialogs handle their own Esc).
@@ -81,7 +93,7 @@ loadGlobe({
   provinces: PROVINCES,
   reducedMotion,
   labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), satName: t('marker.satName') },
-  covers: () => [demoLabel, mapKey, coneLegend, usui.warning, usui.sheet],
+  covers: () => [demoLabel, key.el, usui.warning, usui.sheet],
 })
   .then((g) => {
     actions.attachGlobe(g);

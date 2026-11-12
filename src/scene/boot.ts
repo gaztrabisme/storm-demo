@@ -1,14 +1,12 @@
 // The three.js globe behind the controller interface (scene/types.ts). Loaded lazily by scene/index.ts.
 // Frame: unit sphere = Earth (6371 km); y is north, longitude 0 on +x, east towards -z.
 import * as THREE from 'three';
-import { Line2 } from 'three/examples/jsm/lines/Line2.js';
-import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { trackAt, type LatLon, type Radii } from '../storm/verdict';
+import { trackAt, type LatLon, type Step } from '../storm/verdict';
 import type { Mode } from '../state';
 import type { CreateGlobe, GlobeController, GlobeInit } from './types';
-import { regionGeometry, regionTexture, worldTexture } from './coast';
-import { SCENE } from './colors';
+import { createChart } from './chart';
+import { landMask, regionGeometry, regionTexture, worldTexture } from './coast';
+import { EARTH } from './colors';
 import { startFrameLoop } from './frameLoop';
 import { buildSatellite } from './satellite';
 import './scene.css';
@@ -18,8 +16,6 @@ const EARTH_KM = 6371;
 const GEO_ALT_KM = 35786;
 const SAT_LAT = 0;
 const SAT_LON = 128.2;
-const NM_KM = 1.852;
-const QUADS: Array<keyof Radii> = ['ne', 'se', 'sw', 'nw'];
 
 /** Flight durations (ms). SPEC 6.7 sets 3-5 s for the satellite flights. */
 const FLY_PLACE_MS = 1600;
@@ -38,17 +34,6 @@ function vec(lat: number, lon: number, r = 1, out = new THREE.Vector3()): THREE.
   return out.set(c * Math.cos(lon * RAD) * r, Math.sin(lat * RAD) * r, -c * Math.sin(lon * RAD) * r);
 }
 
-/** Point at distance dKm and bearing brg (deg) from (lat, lon), on a great circle. */
-function destination(lat: number, lon: number, brg: number, dKm: number): LatLon {
-  const d = dKm / EARTH_KM;
-  const p1 = lat * RAD;
-  const l1 = lon * RAD;
-  const b = brg * RAD;
-  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
-  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-  return { lat: p2 / RAD, lon: l2 / RAD };
-}
-
 /** Camera looking at Earth's centre from (lat, lon) at dist Earth radii. */
 interface Cam {
   lat: number;
@@ -62,7 +47,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const { container, track, nowMs } = init;
   let mode: Mode = init.mode;
   let timeMs = init.timeMs;
-  let place: LatLon | null = null;
+  let place: (LatLon & { label?: string }) | null = null;
   let satView = false;
   let width = 1;
   let height = 1;
@@ -81,130 +66,46 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   vec(25, 150, 10, sun.position);
   scene.add(sun);
 
-  // Earth: 110m coast on the whole globe, 10m coast on a patch over the Vietnam region (SPEC 3.3).
-  const earthTex = worldTexture();
-  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), new THREE.MeshBasicMaterial({ map: earthTex })));
-  const regionTex = regionTexture();
-  scene.add(
-    new THREE.Mesh(
-      regionGeometry(1.0008),
-      new THREE.MeshBasicMaterial({ map: regionTex, transparent: true, depthWrite: false }),
-    ),
-  );
+  // Earth: 110m coast on the whole globe, 10m coast on a patch over the Vietnam region (SPEC 3.3), painted as
+  // a paper chart (light theme) or a night screen (dark theme). Each set is painted once, when first needed.
+  type Ground = 'light' | 'dark';
+  const textures: Partial<Record<Ground, { world: THREE.CanvasTexture; region: THREE.CanvasTexture }>> = {};
+  const texturesFor = (g: Ground) => (textures[g] ??= { world: worldTexture(EARTH[g]), region: regionTexture(EARTH[g]) });
+  const earthMat = new THREE.MeshBasicMaterial();
+  const regionMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), earthMat));
+  scene.add(new THREE.Mesh(regionGeometry(1.0008), regionMat));
+  const themeGround = (): Ground => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  let ground: Ground | null = null;
+  function applyGround(): void {
+    const g: Ground = themeGround();
+    if (g === ground) return;
+    ground = g;
+    const tx = texturesFor(g);
+    earthMat.map = tx.world;
+    regionMat.map = tx.region;
+    earthMat.needsUpdate = regionMat.needsUpdate = true;
+    markDirty();
+  }
+  let markDirty = (): void => {};
+  const themeObserver = new MutationObserver(() => applyGround());
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  // Fat lines (constant pixel width). Their resolution follows the canvas size.
-  const lineMats: LineMaterial[] = [];
-  const lineMat = (color: number, linewidth: number, dashed = false): LineMaterial => {
-    const m = new LineMaterial({ color, linewidth, dashed, dashSize: 0.012, gapSize: 0.008, transparent: true });
-    lineMats.push(m);
-    return m;
-  };
-  const lineOf = (pts: LatLon[], r: number, mat: LineMaterial, closed = false): Line2 => {
-    const pos: number[] = [];
-    const v = new THREE.Vector3();
-    for (const p of pts) pos.push(...vec(p.lat, p.lon, r, v).toArray());
-    if (closed && pts.length) pos.push(pos[0], pos[1], pos[2]);
-    const g = new LineGeometry();
-    g.setPositions(pos);
-    const l = new Line2(g, mat);
-    l.computeLineDistances();
-    return l;
-  };
-
-  // Track (SPEC 4): points before now solid, after now dashed, joined at the position at now.
-  const atNow = trackAt(track, nowMs);
-  const past: LatLon[] = track.points.filter((p) => Date.parse(p.t) < nowMs).map((p) => ({ lat: p.lat, lon: p.lon }));
+  // Track positions from now on (the camera frames them with the place).
   const future: LatLon[] = track.points.filter((p) => Date.parse(p.t) > nowMs).map((p) => ({ lat: p.lat, lon: p.lon }));
-  if (atNow) {
-    past.push({ lat: atNow.lat, lon: atNow.lon });
-    future.unshift({ lat: atNow.lat, lon: atNow.lon });
-  }
-  if (past.length > 1) scene.add(lineOf(past, 1.004, lineMat(SCENE.past, 3)));
-  if (future.length > 1) scene.add(lineOf(future, 1.004, lineMat(SCENE.forecast, 3, true)));
+  const atNow = trackAt(track, nowMs);
+  if (atNow) future.unshift({ lat: atNow.lat, lon: atNow.lon });
 
-  // Track uncertainty circles (SPEC 6.2): centred on the track at now + 24/48/72 h.
-  for (const c of init.cone) {
-    const ring: LatLon[] = [];
-    for (let b = 0; b < 360; b += 4) ring.push(destination(c.lat, c.lon, b, c.radiusKm));
-    scene.add(lineOf(ring, 1.005, lineMat(SCENE.cone, 2), true));
-  }
-
-  // Wind area of level 8 or more at the selected time: a fan built from the four quadrant radii.
-  const SEG = 24; // vertices per quadrant
-  const fanPos = new Float32Array((4 * SEG + 2) * 3);
-  const fanGeo = new THREE.BufferGeometry();
-  fanGeo.setAttribute('position', new THREE.BufferAttribute(fanPos, 3));
-  const fanIdx: number[] = [];
-  for (let i = 1; i <= 4 * SEG; i++) fanIdx.push(0, i, i + 1);
-  fanGeo.setIndex(fanIdx);
-  const fan = new THREE.Mesh(
-    fanGeo,
-    new THREE.MeshBasicMaterial({ color: SCENE.wind, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }),
-  );
-  scene.add(fan);
-  const fanEdgeGeo = new THREE.BufferGeometry();
-  const fanEdgePos = new Float32Array(4 * SEG * 3);
-  fanEdgeGeo.setAttribute('position', new THREE.BufferAttribute(fanEdgePos, 3));
-  const fanEdge = new THREE.LineLoop(fanEdgeGeo, new THREE.LineBasicMaterial({ color: SCENE.wind }));
-  scene.add(fanEdge);
-
-  // Storm position at the selected time, cached here so frames do not allocate.
+  // Storm at the selected time.
+  let storm: Step | null = null;
   const stormWorld = new THREE.Vector3();
-  let stormKnown = false;
-  const tmp = new THREE.Vector3();
   function updateStorm(): void {
-    const s = trackAt(track, timeMs);
-    stormKnown = !!s;
-    if (!s) {
-      fan.visible = fanEdge.visible = false;
-      return;
-    }
-    vec(s.lat, s.lon, 1.003, stormWorld);
-    stormWorld.toArray(fanPos, 0);
-    let k = 1;
-    let any = false;
-    for (let q = 0; q < 4; q++) {
-      const r = (s.r34nm[QUADS[q]] ?? 0) * NM_KM;
-      if (r > 0) any = true;
-      for (let i = 0; i < SEG; i++) {
-        const p = destination(s.lat, s.lon, q * 90 + (i * 90) / (SEG - 1), r);
-        vec(p.lat, p.lon, 1.003, tmp);
-        tmp.toArray(fanPos, k * 3);
-        tmp.toArray(fanEdgePos, (k - 1) * 3);
-        k++;
-      }
-    }
-    for (let j = 0; j < 3; j++) fanPos[k * 3 + j] = fanPos[3 + j];
-    fanGeo.attributes.position.needsUpdate = true;
-    fanGeo.computeBoundingSphere();
-    fanEdgeGeo.attributes.position.needsUpdate = true;
-    fanEdgeGeo.computeBoundingSphere();
-    fan.visible = fanEdge.visible = any;
+    storm = trackAt(track, timeMs);
+    if (storm) vec(storm.lat, storm.lon, 1.003, stormWorld);
   }
 
-  // Province points and their names (full mode only).
+  // Province names (full mode).
   const provWorld = init.provinces.map((p) => vec(p.lat, p.lon, 1.002));
-  const provGeo = new THREE.BufferGeometry();
-  provGeo.setAttribute('position', new THREE.Float32BufferAttribute(provWorld.flatMap((v) => v.toArray()), 3));
-  const dot = document.createElement('canvas');
-  dot.width = dot.height = 32;
-  {
-    const d = dot.getContext('2d')!;
-    d.fillStyle = SCENE.provinceRing;
-    d.beginPath();
-    d.arc(16, 16, 15, 0, Math.PI * 2);
-    d.fill();
-    d.fillStyle = SCENE.provinceDot;
-    d.beginPath();
-    d.arc(16, 16, 10, 0, Math.PI * 2);
-    d.fill();
-  }
-  const dotTex = new THREE.CanvasTexture(dot);
-  const provPoints = new THREE.Points(
-    provGeo,
-    new THREE.PointsMaterial({ size: 8, sizeAttenuation: false, map: dotTex, transparent: true, alphaTest: 0.4, depthWrite: false }),
-  );
-  scene.add(provPoints);
 
   const labelLayer = document.createElement('div');
   labelLayer.className = 'globe__labels';
@@ -480,11 +381,86 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const pinWorld = new THREE.Vector3();
   function updateOverlays(): void {
     camera.getWorldDirection(camDir);
-    placeOverlay(stormEl, stormKnown && !satView ? stormWorld : null, true, last.storm);
+    placeOverlay(stormEl, storm && !satView ? stormWorld : null, true, last.storm);
     placeOverlay(pinEl, place && !satView ? pinWorld : null, true, last.pin);
     placeOverlay(satEl, satView ? satWorld : null, false, last.sat);
     if (!satEl.hidden) placeSatName();
-    updateLabels();
+  }
+
+  // ---------------------------------------------------------------- Chart over the globe (scene/chart.ts)
+  const cv = new THREE.Vector3();
+  const cdir = new THREE.Vector3();
+  const isLand = landMask();
+  const chart = createChart({
+    container,
+    track,
+    nowMs,
+    cone: init.cone,
+    provinces: init.provinces,
+    surface(lat, lon, out) {
+      vec(lat, lon, 1, cv);
+      // Front side: the camera sees the outside of the sphere at this point.
+      if (cv.x * (camera.position.x - cv.x) + cv.y * (camera.position.y - cv.y) + cv.z * (camera.position.z - cv.z) <= 0) return false;
+      cv.project(camera);
+      if (cv.z >= 1) return false;
+      out[0] = (cv.x * 0.5 + 0.5) * width;
+      out[1] = (-cv.y * 0.5 + 0.5) * height;
+      return true;
+    },
+    orbit(lon, out) {
+      vec(0, lon, satR, cv);
+      // Hidden when the line from the camera to the point passes through the Earth.
+      cdir.copy(cv).sub(camera.position);
+      const L = cdir.length();
+      cdir.divideScalar(L);
+      const b = camera.position.dot(cdir);
+      const c = camera.position.lengthSq() - 1;
+      const disc = b * b - c;
+      if (disc > 0) {
+        const t0 = -b - Math.sqrt(disc);
+        if (t0 > 0 && t0 < L) return false;
+      }
+      cv.project(camera);
+      if (cv.z >= 1 || cv.z <= -1) return false;
+      out[0] = (cv.x * 0.5 + 0.5) * width;
+      out[1] = (-cv.y * 0.5 + 0.5) * height;
+      return true;
+    },
+    pick(x, y) {
+      cdir.set((x / width) * 2 - 1, -(y / height) * 2 + 1, 0.5).unproject(camera).sub(camera.position).normalize();
+      const b = camera.position.dot(cdir);
+      const c = camera.position.lengthSq() - 1;
+      const disc = b * b - c;
+      if (disc < 0) return null;
+      const tHit = -b - Math.sqrt(disc);
+      if (tHit < 0) return null;
+      cv.copy(camera.position).addScaledVector(cdir, tHit);
+      return { lat: Math.asin(Math.max(-1, Math.min(1, cv.y))) / RAD, lon: Math.atan2(-cv.z, cv.x) / RAD };
+    },
+    isLand,
+  });
+
+  function updateChart(settled: boolean): void {
+    const blocked = coverBoxes();
+    if (!stormEl.hidden) blocked.push([last.storm[0] - 13, last.storm[1] - 13, last.storm[0] + 13, last.storm[1] + 13]);
+    if (!pinEl.hidden) blocked.push([last.pin[0] - 9, last.pin[1] - 9, last.pin[0] + 9, last.pin[1] + 9]);
+    chart.update({
+      width,
+      height,
+      satView,
+      full: mode === 'full',
+      settled,
+      dist: camera.position.length(),
+      timeMs,
+      storm,
+      place,
+      blocked,
+    });
+    const named = chart.placeNoted();
+    if (pinName.hidden !== named) {
+      pinName.hidden = named;
+      pinNameW = -1;
+    }
   }
 
   /** Leader line and "GK-2A" on the side of the model that points away from the Earth on screen. */
@@ -523,7 +499,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
 
   /** Province names in full mode. A label that would overlap one already placed is left out. */
   function updateLabels(): void {
-    const show = provPoints.visible;
+    const show = mode === 'full' && !satView;
     if (labelLayer.hidden === show) labelLayer.hidden = !show;
     if (!show) return;
     if (!labelsMeasured) measureLabels();
@@ -537,14 +513,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       placed[o + 3] = y1;
       n++;
     };
-    const fixed = coverBoxes();
+    const fixed = chart.boxes();
     if (placed.length < (nLabels + fixed.length + 2) * 4) placed = new Float32Array((nLabels + fixed.length + 2) * 4);
     for (const [x0, y0, x1, y1] of fixed) occupy(x0, y0, x1, y1);
     if (!pinEl.hidden) {
-      if (pinNameW < 0) pinNameW = pinName.textContent ? pinName.offsetWidth : 0;
-      occupy(last.pin[0] - 14, last.pin[1] - 32, last.pin[0] + 14 + pinNameW, last.pin[1] + 2);
+      if (pinNameW < 0) pinNameW = pinName.textContent && !pinName.hidden ? pinName.offsetWidth : 0;
+      occupy(last.pin[0] - 10, last.pin[1] - 12, last.pin[0] + 14 + pinNameW, last.pin[1] + 12);
     }
-    if (!stormEl.hidden) occupy(last.storm[0] - 16, last.storm[1] - 16, last.storm[0] + 16, last.storm[1] + 16);
     for (let i = 0; i < nLabels; i++) {
       let on = screen(provWorld[i], true);
       const x = proj.x + 7;
@@ -581,9 +556,10 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
 
   const loop = startFrameLoop((now) => {
     const moving = placeCamera(now);
-    provPoints.visible = mode === 'full' && !satView;
     renderer.render(scene, camera);
     updateOverlays();
+    updateChart(!moving);
+    updateLabels();
     if (!drawn) {
       drawn = true;
       readyResolve();
@@ -591,6 +567,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     }
     return moving;
   });
+  markDirty = () => loop.markDirty();
+  applyGround();
 
   function resize(): void {
     width = Math.max(1, container.clientWidth);
@@ -598,7 +576,6 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    for (const m of lineMats) m.resolution.set(width, height);
     if (!userMoved && !flight.on && !satView) cam = place ? placeCam(place) : homeCam();
     labelsMeasured = false;
     pinNameW = -1;
@@ -695,7 +672,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       loop.markDirty();
     },
     flyToPlace(p) {
-      place = p ? { lat: p.lat, lon: p.lon } : null;
+      place = p ? { lat: p.lat, lon: p.lon, label: p.label } : null;
       if (p) vec(p.lat, p.lon, 1.003, pinWorld);
       pinName.textContent = p?.label ?? '';
       pinNameW = -1;
@@ -728,9 +705,12 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       ro.disconnect();
       loop.dispose();
       renderer.dispose();
-      earthTex.dispose();
-      regionTex.dispose();
-      dotTex.dispose();
+      themeObserver.disconnect();
+      for (const tx of Object.values(textures)) {
+        tx?.world.dispose();
+        tx?.region.dispose();
+      }
+      chart.dispose();
       canvas.remove();
       stormEl.remove();
       pinEl.remove();

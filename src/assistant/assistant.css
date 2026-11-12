@@ -8,10 +8,9 @@
   width: 56px;
   height: 56px;
   padding: 0;
-  border: 2px solid var(--border-control);
+  border: 1px solid var(--ink);
   border-radius: 50%;
-  background: var(--surface-2);
-  box-shadow: var(--shadow);
+  background: var(--paper);
   cursor: pointer;
   overflow: hidden;
 }
@@ -26,7 +25,7 @@
 
 .assistant-avatar:hover,
 .assistant-avatar[aria-expanded='true'] {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--ink);
 }
 
 .assistant-avatar:focus-visible {
@@ -40,9 +39,9 @@
   min-height: var(--tap);
   padding: 0;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
   font: inherit;
   font-size: 1.5rem;
   line-height: 1;
@@ -50,7 +49,7 @@
 }
 
 .assistant-x:hover {
-  border-color: var(--border-control);
+  border-color: var(--ink);
 }
 
 /* ---- Warning pop-up, docked in the globe's bottom stack (main.ts), so it never covers the panel.
@@ -66,12 +65,11 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 6px 10px 12px;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--affected);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--ink);
+  border-left: 4px solid var(--accent);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
 }
 
 @media (min-width: 900px) {
@@ -93,7 +91,7 @@
   flex: 1;
   min-width: 0;
   align-self: center;
-  font-weight: bold;
+  font-weight: 600;
 }
 
 /* ---- Question sheet, above the portrait. */
@@ -109,12 +107,11 @@
   max-height: calc(100vh - var(--topbar-h) - 100px);
   max-height: calc(100dvh - var(--topbar-h) - 100px);
   overflow: hidden;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
+  padding: 14px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .assistant-sheet__head {
@@ -132,6 +129,7 @@
 .assistant-sheet__title {
   flex: 1;
   min-width: 0;
+  font-family: var(--serif);
   font-size: 1.125rem;
 }
 
@@ -142,7 +140,7 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  font-weight: bold;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
 }
@@ -185,17 +183,17 @@
   min-width: var(--tap);
   max-width: 100%;
   padding: 8px 14px;
-  border: 1px solid var(--border-control);
-  border-radius: 22px;
-  background: var(--surface-2);
-  color: var(--text);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .assistant-chip:hover {
-  border-color: var(--accent);
+  background: var(--wash);
 }
 
 .assistant-answer {
@@ -203,11 +201,11 @@
   flex-direction: column;
   gap: 8px;
   padding-top: var(--gap);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--hair);
 }
 
 .assistant-answer__line {
-  font-weight: bold;
+  font-weight: 600;
 }
 
 .assistant-answer__items {

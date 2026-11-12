@@ -10,3 +10,10 @@ export function vnTime(x: Date | string | number): string {
 
 /** Whole kilometres, Vietnamese thousands separator: 1.087. */
 export const km = (d: number): string => String(Math.round(d)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+/** Vietnam date "dd/MM" (map date labels). */
+export function vnDay(x: Date | string | number): string {
+  const ms = x instanceof Date ? x.getTime() : typeof x === 'number' ? x : Date.parse(x);
+  const v = new Date(ms + 7 * 3600 * 1000);
+  return `${pad(v.getUTCDate())}/${pad(v.getUTCMonth() + 1)}`;
+}
