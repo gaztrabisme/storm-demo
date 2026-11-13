@@ -18,7 +18,7 @@ A static web page in Vietnamese. It replays a past storm (Yagi, 2024) as if it w
 
 ### 2.1 Not a warning (club plan, section 9.4; owner, 2026-11-13)
 - The page must never read as an official warning. Every rule below is testable.
-- **No red.** No element's computed `color`, `background-color` or `border-*-color` has an HSL hue in 330°–30° with saturation above 35% and alpha above 0.1. The map's storm drawing (track, marker, strong-wind area, labels) uses the neutral storm colour of DESIGN.md 3. The Usui-chan model's own textures are exempt.
+- **No red.** No element's (or `::before`/`::after`'s) computed `color`, `background-color`, `border-*-color`, `outline-color`, or SVG `fill`/`stroke` has an HSL hue in 330°–30° with saturation above 35% and alpha above 0.1. The map's storm drawing (track, marker, strong-wind area, labels) uses the neutral storm colour of DESIGN.md 3. The Usui-chan model's own textures are exempt. `window.__app.palette` exposes the colours the map draws with, as hex strings: `{ storm, stormFill, bulletin }` for the current theme, where `stormFill` is the wind-area colour before transparency; they equal DESIGN.md 3 exactly.
 - **No commands.** The words `sơ tán` and `khẩn cấp`, and the phrases `Bạn nên làm ngay` and `Vẫn nên theo dõi tin bão`, do not appear in any visible text, except inside the official advice quoted with its source: the `Làm gì khi bão tới?` card body and the `prepare` chip answer (10.3).
 - **No unprompted messages.** Nothing pops up by itself. Usui-chan speaks only after the user taps her or a chip, or in onboarding.
 - The only English on the page is the second half of the footer (6.1) and proper names.
@@ -92,7 +92,7 @@ Each listed element carries the `data-test` value given in brackets.
 - `Nguồn dữ liệu` button [`btn-source`], which opens the satellite view (6.6).
 - `Cài đặt` button [`btn-settings`], which opens settings (6.5).
 - **Official bulletin block** [`official-bulletin`], directly under the top bar and above the map and panel, full width, in its own colour (DESIGN.md 3), visible in both modes and on every view except the satellite close-up. Text: `Bản tin chính thức: Trung tâm Dự báo khí tượng thủy văn quốc gia. Trang này sẽ đặt bản tin chính thức ở đây.` The centre's name is a link to `https://nchmf.gov.vn` with `target="_blank" rel="noopener"` (a link, not a request the page makes). It is a placeholder: no bulletin content.
-- **Footer** [`disclaimer`], always visible at the bottom of the page or panel, small text: `Mô phỏng nghiên cứu – không phải cảnh báo. Research simulation – not a warning.`
+- **Footer** [`disclaimer`], visible in both the map and the satellite view, at the bottom of the page or panel, small text: `Mô phỏng nghiên cứu – không phải cảnh báo. Research simulation – not a warning.`
 
 ### 6.2 Globe [`globe`]
 - The three.js globe with coastlines, the track (past solid, forecast dashed) and a storm marker at the selected time [`storm-marker`]. In full mode, the place markers are labelled with province names.
@@ -128,7 +128,7 @@ Each listed element carries the `data-test` value given in brackets.
   |---|---|---|
   | `affected` | Nhà tôi có bị ảnh hưởng không? | runs the same flow as `btn-check` |
   | `when` | Khi nào bão tới chỗ tôi? | answers from the current verdict, or runs the check first |
-  | `prepare` | Tôi cần chuẩn bị gì? | shows the 3 actions of 10.3 as the official advice, with the 10.3 source line under them |
+  | `prepare` | Tôi cần chuẩn bị gì? | the lead-in `Khuyến cáo phòng tránh bão của cơ quan chức năng:`, then the 3 actions of 10.3, with the 10.3 source line under them |
   | `windlevel` | Cấp gió là gì? | shows the wind-level card text |
   | `radius` | Vùng gió mạnh là gì? | shows the radius card text |
   | `where` | Bão đang ở đâu? | highlights the storm marker (no camera move), answers with its position and time |
@@ -225,6 +225,7 @@ Finishing or skipping saves the settings and never shows the onboarding again.
 - `now` (ISO string)
 - `cone` (section 6.2)
 - `satellite` (section 6.7)
+- `palette` (section 2.1)
 - `events()` (array)
 - `ready` (a promise that resolves when the globe has drawn its first frame)
 - `setPlace(lat, lon, label)`, which runs the verdict flow without geolocation.
