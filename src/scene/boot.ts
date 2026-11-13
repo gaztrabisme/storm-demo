@@ -624,10 +624,76 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     const h = 0.5 / view.zoom;
     view.cx = Math.min(1 - h, Math.max(h, view.cx));
     view.cy = Math.min(1 - h, Math.max(h, view.cy));
+    clampDegrees();
+  }
+  /**
+   * The region is also a box in degrees: its centre is the zoom-1 view centre, and its half-size is half the picture
+   * over the screen scale (px per degree) at that centre. On the globe, meridians converge northward, so near the
+   * picture's corners the screen box alone would let the view centre go further in longitude (or latitude) than this
+   * box. The view centre is kept inside both: within half-size × (1 - 1/zoom) of the region centre on each axis.
+   */
+  let boxKey = '';
+  let box = { lat: 0, lon: 0, hLat: 0, hLon: 0 };
+  function degreeBox(): typeof box {
+    const key = `${home.lat}|${home.lon}|${home.dist}|${width}|${height}`;
+    if (key === boxKey) return box;
+    boxKey = key;
+    const c = surfaceAt(1, 0.5, 0.5);
+    box = { lat: c.lat, lon: c.lon, hLat: Infinity, hLon: Infinity };
+    if (!Number.isFinite(c.lat)) return box;
+    viewCamera.clearViewOffset();
+    viewCamera.updateProjectionMatrix();
+    viewCamera.updateMatrixWorld();
+    const p0 = vec(c.lat, c.lon, 1, new THREE.Vector3()).project(viewCamera);
+    const pe = vec(c.lat, c.lon + 1, 1, new THREE.Vector3()).project(viewCamera);
+    const pn = vec(c.lat + 1, c.lon, 1, new THREE.Vector3()).project(viewCamera);
+    const pxLon = Math.abs(pe.x - p0.x) * 0.5 * width;
+    const pxLat = Math.abs(pn.y - p0.y) * 0.5 * height;
+    if (pxLon > 1e-6) box.hLon = width / 2 / pxLon;
+    if (pxLat > 1e-6) box.hLat = height / 2 / pxLat;
+    mvKey = '';
+    return box;
+  }
+  /** Pulls cx (axis 'x', limits longitude) or cy (axis 'y', latitude) toward the middle until the centre is in the box. */
+  function pullIn(axis: 'x' | 'y'): void {
+    const b = degreeBox();
+    const k = 1 - 1 / view.zoom;
+    const lim = axis === 'x' ? b.hLon * k : b.hLat * k;
+    if (!Number.isFinite(lim)) return;
+    const off = (cx: number, cy: number): number => {
+      const v = surfaceAt(view.zoom, cx, cy);
+      return axis === 'x' ? Math.abs(v.lon - b.lon) : Math.abs(v.lat - b.lat);
+    };
+    const cur = axis === 'x' ? view.cx : view.cy;
+    const at = (t: number): number => (axis === 'x' ? off(t, view.cy) : off(view.cx, t));
+    const r = at(cur);
+    if (!(r > lim)) return;
+    let ok = 0.5;
+    let bad = cur;
+    for (let i = 0; i < 40; i++) {
+      const m = (ok + bad) / 2;
+      if (at(m) > lim) bad = m;
+      else ok = m;
+    }
+    if (axis === 'x') view.cx = ok;
+    else view.cy = ok;
+  }
+  function clampDegrees(): void {
+    if (view.zoom <= 1) return;
+    for (let pass = 0; pass < 2; pass++) {
+      pullIn('y');
+      pullIn('x');
+    }
   }
   /** Logs and redraws after an input moved the view; nothing when it did not move. */
   function viewMoved(z: number, cx: number, cy: number): void {
-    if (z === view.zoom && cx === view.cx && cy === view.cy) return;
+    // The degree clamp lands on its limit by bisection: a push against the edge that ends within 1e-9 of where the
+    // view was is no move.
+    if (z === view.zoom && Math.abs(cx - view.cx) < 1e-9 && Math.abs(cy - view.cy) < 1e-9) {
+      view.cx = cx;
+      view.cy = cy;
+      return;
+    }
     init.onMapMove?.(view.zoom);
     markDirty();
   }
@@ -688,26 +754,29 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const vd = new THREE.Vector3();
   let mvKey = '';
   let mv = { zoom: 1, lat: NaN, lon: NaN };
+  /** The surface point at the centre of the view (zoom z, centre cx, cy), from the region's camera. */
+  function surfaceAt(z: number, cx: number, cy: number): { lat: number; lon: number } {
+    viewCamera.fov = MAP_FOV;
+    viewCamera.aspect = width / height;
+    if (z === 1) viewCamera.clearViewOffset();
+    else viewCamera.setViewOffset(width, height, (cx - 0.5 / z) * width, (cy - 0.5 / z) * height, width / z, height / z);
+    viewCamera.updateProjectionMatrix();
+    vec(home.lat, home.lon, home.dist, viewCamera.position);
+    viewCamera.lookAt(0, 0, 0);
+    viewCamera.updateMatrixWorld();
+    vd.set(0, 0, 0.5).unproject(viewCamera).sub(viewCamera.position).normalize();
+    const b = viewCamera.position.dot(vd);
+    const disc = b * b - (viewCamera.position.lengthSq() - 1);
+    if (disc < 0) return { lat: NaN, lon: NaN };
+    vd.multiplyScalar(-b - Math.sqrt(disc)).add(viewCamera.position);
+    return { lat: Math.asin(Math.max(-1, Math.min(1, vd.y))) / RAD, lon: Math.atan2(-vd.z, vd.x) / RAD };
+  }
   function mapView(): { zoom: number; lat: number; lon: number } {
     const key = `${view.zoom}|${view.cx}|${view.cy}|${home.lat}|${home.lon}|${home.dist}|${width}|${height}`;
     if (key !== mvKey) {
+      const v = surfaceAt(view.zoom, view.cx, view.cy);
       mvKey = key;
-      viewCamera.fov = MAP_FOV;
-      viewCamera.aspect = width / height;
-      if (view.zoom === 1) viewCamera.clearViewOffset();
-      else viewCamera.setViewOffset(width, height, (view.cx - 0.5 / view.zoom) * width, (view.cy - 0.5 / view.zoom) * height, width / view.zoom, height / view.zoom);
-      viewCamera.updateProjectionMatrix();
-      vec(home.lat, home.lon, home.dist, viewCamera.position);
-      viewCamera.lookAt(0, 0, 0);
-      viewCamera.updateMatrixWorld();
-      vd.set(0, 0, 0.5).unproject(viewCamera).sub(viewCamera.position).normalize();
-      const b = viewCamera.position.dot(vd);
-      const disc = b * b - (viewCamera.position.lengthSq() - 1);
-      if (disc < 0) mv = { zoom: view.zoom, lat: NaN, lon: NaN };
-      else {
-        vd.multiplyScalar(-b - Math.sqrt(disc)).add(viewCamera.position);
-        mv = { zoom: view.zoom, lat: Math.asin(Math.max(-1, Math.min(1, vd.y))) / RAD, lon: Math.atan2(-vd.z, vd.x) / RAD };
-      }
+      mv = { zoom: view.zoom, lat: v.lat, lon: v.lon };
     }
     return { zoom: mv.zoom, lat: mv.lat, lon: mv.lon };
   }
