@@ -459,6 +459,36 @@ export function createChart(deps: ChartDeps) {
     gratPath.setAttribute('d', d);
     for (let i = li; i < gratLabels.length; i++) gratLabels[i].style.display = 'none';
 
+    // The track on screen, so an hour label never sits on it: on a phone the forecast points run through the
+    // circles and a label there reads as part of the track.
+    const trackSegs: number[][] = [];
+    {
+      let px = NaN;
+      let py = NaN;
+      for (const p of track.points) {
+        const on = deps.surface(p.lat, p.lon, pt);
+        const x = on ? pt[0] : NaN;
+        const y = on ? pt[1] : NaN;
+        if (!Number.isNaN(x) && !Number.isNaN(px)) trackSegs.push([px, py, x, y]);
+        px = x;
+        py = y;
+      }
+    }
+    /** True when the track passes through the box (grown by the dots' size). */
+    const onTrack = (box: number[]): boolean => {
+      const m = 4;
+      const b = [box[0] - m, box[1] - m, box[2] + m, box[3] + m];
+      for (const [x0, y0, x1, y1] of trackSegs) {
+        const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 2));
+        for (let k = 0; k <= n; k++) {
+          const x = x0 + ((x1 - x0) * k) / n;
+          const y = y0 + ((y1 - y0) * k) / n;
+          if (x > b[0] && x < b[2] && y > b[1] && y < b[3]) return true;
+        }
+      }
+      return false;
+    };
+
     // 70 % circles, labelled with their hours at the bottom edge.
     const marks: number[][] = [];
     /** Screen segments of the track and the 70 % circles, which the place's note keeps off. */
@@ -473,8 +503,9 @@ export function createChart(deps: ChartDeps) {
         const [x1, y1] = ringPts[k];
         if (!Number.isNaN(x0) && !Number.isNaN(x1)) lines.push([x0, y0, x1, y1]);
       }
-      // The label goes outside the circle at the first edge place where it overlaps no other label: on a phone the
-      // circles sit close together and their south edges share one strip.
+      // The label goes outside the circle at the first edge place where it overlaps no other label and not the
+      // track: on a phone the circles sit close together and their south edges share one strip. With no such
+      // place it is left out (the key explains the circles).
       const w = c.lab.textContent!.length * charW();
       const lh = lineH();
       let placed = false;
@@ -503,7 +534,7 @@ export function createChart(deps: ChartDeps) {
           anchor = 'end';
         }
         if (box[0] < 2 || box[2] > f.width - 2 || box[1] < 2 || box[3] > f.height - 2) continue;
-        if (taken.some((b) => overlaps(b, box))) continue;
+        if (taken.some((b) => overlaps(b, box)) || onTrack(box)) continue;
         c.lab.style.display = '';
         c.lab.setAttribute('x', String(f1(tx)));
         c.lab.setAttribute('y', String(f1(ty)));

@@ -3,7 +3,8 @@
 .assistant-avatar {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  /* Centred in the footer row (styles.css --foot-h). */
+  bottom: calc((var(--foot-h) - 56px) / 2);
   z-index: 30;
   width: 56px;
   height: 56px;
@@ -56,7 +57,7 @@
 .assistant-sheet {
   position: fixed;
   right: 16px;
-  bottom: 84px;
+  bottom: calc(var(--foot-h) + 8px);
   z-index: 32;
   display: flex;
   flex-direction: column;
@@ -73,6 +74,9 @@
 }
 
 .assistant-sheet__head {
+  /* Takes its full height in the sheet's column, so the chips start below it and never scroll under it. */
+  position: relative;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -89,6 +93,14 @@
   min-width: 0;
   font-family: var(--serif);
   font-size: 1.125rem;
+  text-wrap: balance;
+}
+
+/* The close button sits in the head's top-right corner, so the title runs the full width beside the figure. */
+.assistant-sheet__head .assistant-x {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .assistant-sheet__title-btn {

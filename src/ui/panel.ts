@@ -115,6 +115,15 @@ export function checkBlock(store: Store, actions: Actions): HTMLElement {
 }
 
 /**
+ * A line as text nodes with its last bracketed phrase ("(ước tính)") kept on one line; the text is unchanged.
+ */
+function keepTail(s: string): Node[] {
+  const i = s.lastIndexOf(' (');
+  if (i < 0) return [document.createTextNode(s)];
+  return [document.createTextNode(s.slice(0, i + 1)), h('span', { class: 'nowrap', text: s.slice(i + 1) })];
+}
+
+/**
  * The verdict card (SPEC 6.3): what the simulation says about the place, with no action list (SPEC 2.1). Its one
  * link-styled button opens the official advice in the "Làm gì khi bão tới?" card (`openAdvice`).
  */
@@ -140,7 +149,7 @@ export function verdictCard(store: Store, actions: Actions, openAdvice: () => vo
         h('p', { test: 'verdict-when', class: 'verdict__when', text: t('verdict.when', { from: vnTime(v.firstInside!), to: vnTime(v.lastInside!) }) }),
       );
       const n = windLevel(v.peakWindKt);
-      if (n !== null) body.push(h('p', { test: 'verdict-wind', class: 'verdict__wind', text: t('verdict.wind', { n }) }));
+      if (n !== null) body.push(h('p', { test: 'verdict-wind', class: 'verdict__wind' }, ...keepTail(t('verdict.wind', { n }))));
     } else {
       body.push(
         h('h2', { test: 'verdict-head', class: 'verdict__head', text: t('verdict.headUnaffected', { place: inside }) }),

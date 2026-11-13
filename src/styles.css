@@ -45,9 +45,8 @@
   --gap: 12px;
   --panel-w: 420px;
   --topbar-h: 56px;
-  /* The strip at the bottom that holds Usui-chan's portrait (56 px, 16 px from the bottom): under the panel on a
-     desktop, the footer row on a phone. */
-  --foot-h: 84px;
+  /* The footer row at the bottom of the page, full width; it also holds Usui-chan's 56 px portrait at its right. */
+  --foot-h: 58px;
   color-scheme: light;
 }
 
@@ -102,10 +101,14 @@ p {
 }
 
 @media (min-width: 900px) {
+  :root {
+    --foot-h: 72px;
+  }
+
   #app {
     grid-template-columns: minmax(0, 1fr) var(--panel-w);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    grid-template-areas: 'top top' 'bulletin bulletin' 'globe panel' 'foot panel';
+    grid-template-rows: auto auto minmax(0, 1fr) var(--foot-h);
+    grid-template-areas: 'top top' 'bulletin bulletin' 'globe panel' 'foot foot';
   }
 }
 
@@ -174,12 +177,9 @@ p {
 }
 
 .bulletin__link {
-  /* A 44 px hit area round the inline name; the negative margins keep the line's height. */
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap);
-  margin: -12px 0;
-  vertical-align: middle;
+  /* An inline link, so the line wraps inside the name (two lines on a phone, not three). Its vertical padding
+     makes the 44 px hit area without changing the line's height. */
+  padding: calc((var(--tap) - 1em) / 2) 0;
   color: var(--bulletin);
   font-weight: 600;
   text-decoration: underline;
@@ -201,26 +201,27 @@ p {
   background: var(--space);
 }
 
-/* ---- Disclaimer footer (SPEC 6.1): small muted text at the bottom of the page; on a phone it shares the bottom
-   strip with Usui-chan's portrait, so it stops short of her corner. ---- */
+/* ---- Disclaimer footer (SPEC 6.1): small muted text in one full-width row at the bottom of the page. It shares
+   the row with Usui-chan's portrait, so it stops short of her corner. ---- */
 .disclaimer {
   grid-area: foot;
   align-self: stretch;
   display: flex;
   align-items: center;
   margin: 0;
-  padding: 6px 88px 6px 16px;
+  padding: 4px 80px 4px 16px;
   border-top: 1px solid var(--hair);
   background: var(--paper);
   color: var(--muted);
-  font-size: min(0.8125rem, 16px);
-  line-height: 1.35;
+  font-size: min(0.75rem, 14px);
+  line-height: 1.3;
 }
 
 @media (min-width: 900px) {
   .disclaimer {
-    padding: 6px 16px;
+    padding: 6px 88px 6px 16px;
     border-top: 1px solid var(--ink);
+    font-size: min(0.8125rem, 16px);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -556,6 +557,14 @@ p {
     -1.4px -1.4px 0 var(--space);
 }
 
+/* The orbit's dots stop under every HUD label, also between its words: each label sits on a patch of space with
+   a soft edge, so it reads as the halo, not as a box. */
+.sathud [data-test='hud-label'] {
+  width: fit-content;
+  background: var(--space);
+  box-shadow: 0 0 4px 3px var(--space);
+}
+
 .sathud__keep {
   white-space: nowrap;
 }
@@ -596,7 +605,8 @@ p {
   width: fit-content;
 }
 
-.sathud__callout--left .sathud__part {
+.sathud__callout--left .sathud__part,
+.sathud__callout--left .sathud__sub {
   margin-left: auto;
 }
 
@@ -791,8 +801,8 @@ p {
   overscroll-behavior: contain;
 }
 
-/* Usui-chan's corner: on a phone the footer row holds her portrait; on a desktop a strip of ground under the panel
-   column does, so it never covers the panel's text. The panel ends in a short fade that shows the list goes on. */
+/* Usui-chan's portrait sits in the footer row, so it never covers the panel's text. The panel ends in a short fade
+   that shows the list goes on. */
 
 .panel::after {
   content: '';
@@ -805,6 +815,14 @@ p {
   pointer-events: none;
 }
 
+/* Phone: a shorter fade, so the verdict's lines and btn-advice stay clear of it in the small panel window. */
+@media (max-width: 899px) {
+  .panel::after {
+    height: 16px;
+    margin-top: -16px;
+  }
+}
+
 @media (min-width: 900px) {
   .panel {
     border-top: 0;
@@ -812,22 +830,7 @@ p {
   }
 
   .panel {
-    margin-bottom: var(--foot-h);
     border-bottom: 0;
-  }
-
-  body::after {
-    content: '';
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    z-index: 1;
-    width: var(--panel-w);
-    height: var(--foot-h);
-    background: var(--paper);
-    border-top: 1px solid var(--hair);
-    border-left: 1px solid var(--ink);
-    pointer-events: none;
   }
 }
 
@@ -836,13 +839,20 @@ p {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* Room under the last line for the fade (her portrait sits in the strip under the panel). */
+  /* Room under the last line for the fade (her portrait sits in the footer row under the panel). */
   padding: 18px 20px 44px;
 }
 
 .panel__main > .key {
-  padding-bottom: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--hair);
   border-bottom: 1px solid var(--hair);
+}
+
+/* Under the closed "Tìm hiểu thêm" line, whose own hairline already ends it. */
+.learn:has(> .learn__more:not([open])) + .key {
+  margin-top: -16px;
+  border-top: 0;
 }
 
 .view-satellite .panel__main {
@@ -1111,6 +1121,52 @@ select {
   font-weight: 600;
   line-height: 1.25;
   color: var(--ink);
+  text-wrap: pretty;
+}
+
+/* Phone: the heading, the time, the wind line and btn-advice fit in the panel's window together. */
+@media (max-width: 899px) {
+  .verdict {
+    gap: 6px;
+  }
+
+  .verdict__head {
+    font-size: 1.25rem;
+    line-height: 1.2;
+  }
+
+  .verdict__when,
+  .verdict__wind,
+  .verdict__note {
+    line-height: 1.3;
+  }
+
+  .verdict .btn {
+    margin-top: 0;
+  }
+
+  .verdict .btn--link {
+    padding: 4px 0;
+  }
+
+  .bulletin {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+}
+
+.verdict p,
+.verdict .btn--link {
+  text-wrap: pretty;
+}
+
+.verdict .btn--link {
+  line-height: 1.3;
+}
+
+/* A short phrase kept on one line, so "(ước tính)" never breaks in two. */
+.nowrap {
+  white-space: nowrap;
 }
 
 .verdict__when {

@@ -204,7 +204,15 @@ export function holdFigures(ms: number): void {
 
 function loop(now: number): void {
   raf = 0;
-  if (!renderer || document.hidden || now < holdUntil) return;
+  if (!renderer || document.hidden) return;
+  // A flight is running: try again once it is over (the frame's time can lag the clock the hold was set by, so a
+  // figure that came on screen during the hold would otherwise wait for the next request; under reduced motion
+  // there is none, and its still pose was never drawn).
+  if (now < holdUntil || performance.now() < holdUntil) {
+    window.clearTimeout(holdTimer);
+    holdTimer = window.setTimeout(kick, Math.max(holdUntil - performance.now(), 0) + 20);
+    return;
+  }
   const shown = [...figures].filter((f) => f.shown());
   if (!shown.length) return;
   if (reducedMotion()) {

@@ -50,31 +50,48 @@ const learn = learnBlock(store);
 const globeBottom = h('div', { class: 'globe__bottom' });
 const globeEl = h('section', { test: 'globe', class: 'globe', 'aria-label': t('app.globe') }, loading, demoLabel, globeBottom);
 
+const verdictHost = verdictCard(store, actions, () => learn.openAdvice());
+const slider = timeSlider(store, actions);
+const check = checkBlock(store, actions);
 const panelMain = h(
   'div',
   { class: 'panel__main' },
-  timeSlider(store, actions),
+  slider,
   stormSummary(),
-  checkBlock(store, actions),
-  verdictCard(store, actions, () => learn.openAdvice()),
+  check,
+  verdictHost,
   timelineList(store, actions),
   learn.el,
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
 
-// Desktop: the key sits on the map, in the open sea at the lower right. Phone: it folds under the map, at the
-// top of the panel, so the reader meets the key before the controls (DESIGN 2).
-const placeKey = (wide: boolean) => {
+// Desktop: the key sits on the map, in the open sea at the lower right. Phone: it folds under the map, in the
+// panel below the storm summary and the check button (DESIGN 2), so the button is in view on load: in easy mode
+// after the one "Tìm hiểu thêm" line, in full mode after the verdict, above the long province list.
+// The full-mode time slider heads the panel on a desktop; on a phone it comes after the check button, which then
+// shows on load in both modes.
+let wide = true;
+const placeKey = () => {
+  if (wide) panelMain.prepend(slider);
+  else check.after(slider);
   if (wide) globeBottom.append(key.el);
-  else panelMain.prepend(key.el);
+  else if (modeOf(store.state) === 'easy') learn.el.after(key.el);
+  else verdictHost.after(key.el);
 };
 try {
   const wideMq = window.matchMedia('(min-width: 900px)');
-  placeKey(wideMq.matches);
-  wideMq.addEventListener('change', (e) => placeKey(e.matches));
+  wide = wideMq.matches;
+  wideMq.addEventListener('change', (e) => {
+    wide = e.matches;
+    placeKey();
+  });
 } catch {
-  placeKey(true);
+  wide = true;
 }
+placeKey();
+store.subscribe((s, prev) => {
+  if (modeOf(s) !== modeOf(prev)) placeKey();
+});
 document.getElementById('app')?.replaceChildren(topbar, bulletin, globeEl, panel, disclaimer, usui.root, settings.el);
 
 // Esc leaves the satellite view (dialogs handle their own Esc).

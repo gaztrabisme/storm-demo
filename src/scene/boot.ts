@@ -922,7 +922,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     };
     const fixed = chart.boxes();
     if (placed.length < (nLabels + fixed.length + 2) * 4) placed = new Float32Array((nLabels + fixed.length + 2) * 4);
-    for (const [x0, y0, x1, y1] of fixed) occupy(x0, y0, x1, y1);
+    // A word space of clearance round the chart's labels and notes, so a name never runs on into one of them.
+    for (const [x0, y0, x1, y1] of fixed) occupy(x0 - 6, y0 - 2, x1 + 6, y1 + 2);
     if (!pinEl.hidden) {
       if (pinNameW < 0) pinNameW = pinName.textContent && !pinName.hidden ? pinName.offsetWidth : 0;
       occupy(last.pin[0] - 10, last.pin[1] - 12, last.pin[0] + 14 + pinNameW, last.pin[1] + 12);

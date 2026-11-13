@@ -118,10 +118,24 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     sheet.classList.add('is-answered');
     revealAnswer();
   }
-  /** Scroll the sheet so the answer starts at its top; the chips stay above it. */
+  /**
+   * Scroll the sheet just far enough that the whole answer shows, and no further than its top. The chips stay
+   * above it; the scroll stops at the top of a row of chips, so no chip is shown cut in half.
+   */
   function revealAnswer(): void {
     if (sheet.hidden || answer.hidden) return;
-    body.scrollTop = Math.max(0, answer.offsetTop - 4);
+    body.style.paddingBottom = '';
+    const top = Math.max(0, answer.offsetTop - 4);
+    const need = answer.offsetTop + answer.offsetHeight - body.clientHeight;
+    if (need <= 0) {
+      body.scrollTop = 0;
+      return;
+    }
+    const rows = [...chips.children].map((c) => (c as HTMLElement).offsetTop).filter((y) => y >= need && y < top);
+    const to = rows.length ? Math.min(...rows) : top;
+    // The scroll can only reach `need`; a little room under the answer lets it stop at the row's top instead.
+    if (to > need) body.style.paddingBottom = `${Math.ceil(to - need)}px`;
+    body.scrollTop = to;
   }
 
   /**
