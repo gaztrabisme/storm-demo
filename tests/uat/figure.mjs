@@ -60,21 +60,6 @@ await scenario('onboarding step 1: hello, then idle (1440x900)', async () => {
   await ctx.close();
 });
 
-await scenario('warning pop-up: alert + talk, then idle (1440x900)', async () => {
-  const ctx = await context({ geo: HAI_PHONG, init: CLIP_WATCH });
-  const page = await open(ctx);
-  await skipOnboarding(page);
-  const since = await pageNow(page);
-  await runCheck(page);
-  await waitVisible(page, 'assistant-warning', 5000).catch(() => {});
-  check('(warning) the warning pop-up is shown', await visible(page, 'assistant-warning'));
-  check('(warning) a figure is shown with the warning', await figureShown(page));
-  await heightCheck(page, '(warning, 1440)', 160);
-  await clipCheck(page, since, '(warning)', 'alert', true);
-  await idleCheck(page, since, '(warning)');
-  await ctx.close();
-});
-
 await scenario('question sheet and chips (1440x900)', async () => {
   const ctx = await context({ geo: HAI_PHONG, init: CLIP_WATCH });
   // SPEC 6.8: the figure is drawn from the club's model usui-chan.glb, so the page fetches that file.
@@ -137,8 +122,6 @@ await scenario('question sheet and chips (1440x900)', async () => {
   since = await chip(page, 'affected');
   await waitVisible(page, 'verdict', 15000).catch(() => {});
   await clipCheck(page, since, '(chip affected, affected answer)', 'alert', true);
-  await page.waitForTimeout(500);
-  await page.keyboard.press('Escape'); // the warning
   await settle(page, since);
 
   since = await chip(page, 'radius');

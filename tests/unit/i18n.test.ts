@@ -1,7 +1,7 @@
 // Locked acceptance tests: SPEC section 2, all user-facing text in src/i18n/vi.json, no user-facing English.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { APPROVED_FIXED, SUMMARY_TEMPLATE, VERDICT_WIND_TEMPLATE, WHERE_TEMPLATE, templateRe } from '../content.mjs';
+import { ACTIONS, APPROVED_FIXED, BANNED_PHRASES, BTN_ADVICE, BULLETIN_LINK_TEXT, CARD_SAFETY, ACTIONS_SOURCE, DEMO_LABEL, DEMO_LABEL_TEMPLATE, ONBOARDING_FULL_LINE, SUMMARY_TEMPLATE, VERDICT_WIND_TEMPLATE, WHERE_TEMPLATE, headAffected, headUnaffected, templateRe } from '../content.mjs';
 
 const FILE = new URL('../../src/i18n/vi.json', import.meta.url);
 const ENGLISH = ['button', 'click', 'settings', 'loading', 'error', 'close', 'next', 'back', 'skip', 'export', 'source', 'done', 'mode', 'theme', 'menu', 'open', 'cancel', 'ok', 'help', 'home', 'info'];
@@ -35,7 +35,7 @@ describe('src/i18n/vi.json', () => {
     expect(missing).toEqual([]);
   });
 
-  it('every approved string of SPEC 10 (cards, actions, satellite panel, 10.6 HUD labels), the 6.2 legend and the 6.4 credits is in vi.json word for word', () => {
+  it('every approved string of SPEC 10 (cards, the prepare chip lead-in and the 10.3 official advice it shows, satellite panel, 10.6 HUD labels), the 6.2 legend and the 6.4 credits is in vi.json word for word', () => {
     const missing = APPROVED_FIXED.filter((s: string) => !strings.some((v) => v.includes(s)));
     expect(missing).toEqual([]);
   });
@@ -50,6 +50,40 @@ describe('src/i18n/vi.json', () => {
       const re = templateRe(tpl);
       expect(strings.some((v) => re.test(v)), tpl).toBe(true);
     }
+  });
+
+  it('the SPEC 6.3 verdict headings are in vi.json word for word (placeholder name free)', () => {
+    for (const tpl of [headAffected('{place}'), headUnaffected('{place}')]) {
+      const re = templateRe(tpl);
+      expect(strings.some((v) => re.test(v)), tpl).toBe(true);
+    }
+  });
+
+  it('the SPEC 6.3 btn-advice text and the SPEC 6.6 full-mode line are in vi.json word for word', () => {
+    const missing = [BTN_ADVICE, ONBOARDING_FULL_LINE].filter((s) => !strings.some((v) => v.includes(s)));
+    expect(missing).toEqual([]);
+  });
+
+  it('the SPEC 4 demo label is in vi.json word for word (the demo time written out or as a placeholder)', () => {
+    const re = templateRe(DEMO_LABEL_TEMPLATE);
+    expect(strings.some((v) => v.includes(DEMO_LABEL) || re.test(v)), DEMO_LABEL).toBe(true);
+  });
+
+  it('the SPEC 6.1 bulletin and footer texts are in vi.json (each part around the link, and each half of the footer)', () => {
+    const parts = ['Bản tin chính thức:', BULLETIN_LINK_TEXT, 'Trang này sẽ đặt bản tin chính thức ở đây.', 'Mô phỏng nghiên cứu – không phải cảnh báo.', 'Research simulation – not a warning.'];
+    const missing = parts.filter((s) => !strings.some((v) => v.includes(s)));
+    expect(missing).toEqual([]);
+  });
+
+  it('SPEC 2.1: no entry holds "sơ tán", "khẩn cấp", "Bạn nên làm ngay" or "Vẫn nên theo dõi tin bão" outside the quoted 10.3 advice', () => {
+    // Longest first, so a heading ("Sau bão") is not cut out of an item that starts with it.
+    const quoted = [...ACTIONS, ...CARD_SAFETY.body, ACTIONS_SOURCE].sort((a: string, b: string) => b.length - a.length);
+    const bad = all
+      .filter(([, v]) => typeof v === 'string')
+      .map(([k, v]) => [k, quoted.reduce((s: string, q: string) => s.split(q).join(' '), v as string)] as [string, string])
+      .filter(([, rest]) => BANNED_PHRASES.some((p: string) => rest.toLocaleLowerCase('vi').includes(p.toLocaleLowerCase('vi'))))
+      .map(([k, rest]) => `${k}: ${rest.slice(0, 60)}`);
+    expect(bad).toEqual([]);
   });
 
   it('no entry contains common English UI words', () => {

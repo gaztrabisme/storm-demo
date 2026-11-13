@@ -91,7 +91,6 @@ async function timelineChecks(page, tag) {
   const unRow = unIdx >= 0 ? named[unIdx] : null;
   check(`${tag} the timeline has an unaffected row to tap`, !!unRow);
   if (unRow) {
-    await page.keyboard.press('Escape'); // the warning pop-up, if open
     await T(page, 'timeline-row').nth(unIdx).click();
     await page.waitForFunction((n) => (document.querySelector('[data-test="verdict-head"]')?.textContent ?? '').includes(n), unRow.ref.p.name, { timeout: 10000 }).catch(() => {});
     const head2 = await text(page, 'verdict-head');
@@ -342,7 +341,6 @@ async function markerAtTrack(page, tag, slider, times) {
     const at = trackAt(TRACK, ms);
     await page.evaluate((p) => window.__app.setPlace(p.lat, p.lon, 'Tâm bão'), at);
     await page.waitForTimeout(800);
-    await page.keyboard.press('Escape'); // the warning pop-up, if open
     const m = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
     const pin = await T(page, 'place-pin').first().boundingBox().catch(() => null);
     const c = m ? centreOf(m) : null;

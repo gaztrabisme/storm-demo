@@ -1,9 +1,9 @@
 // UAT, SPEC 2 + 4 + 6: layout at phone and desktop width, light and dark; target sizes; no horizontal scroll;
 // focus ring; no web font; no English on screen; demo label; phone/desktop split; reduced motion; no camera move after a verdict.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/layout.mjs
-import { browser, DRAW_COUNTER, SAME_PX, canvasShot, pixelDiff, HAI_PHONG, SHOTS, T, check, context, finish, noHScroll, onTop, open, ready, scenario, skipOnboarding, text, url, visible, waitView, waitVisible } from './lib.mjs';
+import { DEMO_LABEL, browser, DRAW_COUNTER, SAME_PX, canvasShot, pixelDiff, HAI_PHONG, SHOTS, T, check, context, finish, noHScroll, onTop, open, ready, scenario, skipOnboarding, text, url, visible, waitView, waitVisible } from './lib.mjs';
 
-const DEMO = 'Bão mô phỏng, dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): 07:00, 05/09';
+const DEMO = DEMO_LABEL;
 // Same word list as tests/unit/i18n.test.ts; proper names (Yagi, GK-2A, GPS) are not on it.
 const ENGLISH = ['button', 'click', 'settings', 'loading', 'error', 'close', 'next', 'back', 'skip', 'export', 'source', 'done', 'mode', 'theme', 'menu', 'open', 'cancel', 'ok', 'help', 'home', 'info'];
 const ENGLISH_RE = new RegExp(`(^|[^A-Za-z])(${ENGLISH.join('|')})(?![A-Za-z])`, 'i');

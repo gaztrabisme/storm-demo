@@ -347,16 +347,6 @@ export function refVerdict(place, track, nowMs = NOW_MS, R = 6371) {
   return { affected: first !== null, firstInside: first, lastInside: last, closest, peakWindKt: peak };
 }
 
-/** Texts of the safety actions in verdict-actions, in order: list items if it is a list, else its child elements. */
-export const actionTexts = (page) =>
-  T(page, 'verdict-actions').first().evaluate((e) => {
-    const norm = (s) => (s ?? '').replace(/\s+/g, ' ').trim();
-    const li = [...e.querySelectorAll('li')];
-    if (li.length) return li.map((x) => norm(x.textContent));
-    const box = [...e.children].filter((c) => !/^H\d$/.test(c.tagName));
-    return (box.length === 1 ? [...box[0].children] : box).map((x) => norm(x.textContent));
-  });
-
 /** Track position at time ms, linear in lat/lon between the yagi.json points (SPEC 5.1). */
 export function trackAt(track, tMs) {
   const pts = track.points.map((p) => ({ ...p, ms: Date.parse(p.t) }));
@@ -425,7 +415,7 @@ export const centreInside = (inner, outer) =>
   inner.x + inner.width / 2 >= outer.x && inner.x + inner.width / 2 <= outer.x + outer.width &&
   inner.y + inner.height / 2 >= outer.y && inner.y + inner.height / 2 <= outer.y + outer.height;
 
-/** PNG of the screen area covered by the largest visible canvas (the globe), with whatever is drawn over it except the warning pop-up. */
+/** PNG of the screen area covered by the largest visible canvas (the globe), with whatever is drawn over it. */
 export async function canvasShot(page) {
   const box = await page.evaluate(() => {
     let best = null;
@@ -440,8 +430,7 @@ export async function canvasShot(page) {
     return best;
   });
   if (!box) throw new Error('no visible canvas');
-  // The warning pop-up may open over the globe at any moment after a verdict; it is masked so it does not count as globe movement.
-  return page.screenshot({ clip: box, animations: 'allow', mask: [page.locator('[data-test="assistant-warning"]')] });
+  return page.screenshot({ clip: box, animations: 'allow' });
 }
 
 /**
@@ -657,18 +646,25 @@ export const FLIGHT_PROBE = () => {
 };
 
 /**
- * Times a camera flight (needs FLIGHT_PROBE): calls `start`, then every 100 ms for `ms` copies the largest visible canvas
- * into a 160 x 120 picture and records when __app.view becomes `view`.
- * Returns { viewMs, steps: [{ from, t, diff }] }: diff is the share of pixels changed (more than 8 in a channel) between
- * the copies at `from` and `t` (ms after the click). Copies come every 100 ms or later when the page is busy.
+ * Times a camera flight (needs FLIGHT_PROBE): calls `start` (which clicks), then every 100 ms copies the largest visible
+ * canvas into a 160 x 120 picture and records when __app.view becomes `view`, until `ms` after the click.
+ * Time zero is the click itself, stamped inside the page (performance.now()) by a capturing click listener on window
+ * that runs before the app's own handlers; Playwright's click takes 50-300 ms of its own before the click lands.
+ * Returns { clicked, viewMs, steps: [{ from, t, diff }] }: diff is the share of pixels changed (more than 8 in a channel)
+ * between the copies at `from` and `t` (ms after the click). Copies come every 100 ms or later when the page is busy.
  */
 export async function timeFlight(page, view, start, ms = 2500) {
   await page.evaluate(({ view, ms }) => {
     const W = 160;
     const H = 120;
     const g = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
-    const st = { t0: performance.now(), viewAt: null, steps: [], done: false };
+    const st = { t0: null, viewAt: null, steps: [], done: false };
     window.__uatFlight = st;
+    const onClick = () => {
+      if (st.t0 === null) st.t0 = performance.now();
+      window.removeEventListener('click', onClick, true);
+    };
+    window.addEventListener('click', onClick, true);
     let prev = null;
     const grab = () => {
       let best = null;
@@ -682,6 +678,13 @@ export async function timeFlight(page, view, start, ms = 2500) {
       return g.getImageData(0, 0, W, H).data;
     };
     const tick = () => {
+      if (st.t0 === null) {
+        // Not clicked yet: keep the latest copy as the picture before the click.
+        prev = grab();
+        if (performance.now() - start0 > 10000) st.done = true;
+        else setTimeout(tick, 20);
+        return;
+      }
       const t = performance.now() - st.t0;
       if (window.__app.view === view && st.viewAt === null) st.viewAt = t;
       const cur = grab();
@@ -695,18 +698,19 @@ export async function timeFlight(page, view, start, ms = 2500) {
       if (t < ms) setTimeout(tick, 100);
       else st.done = true;
     };
+    const start0 = performance.now();
     prev = grab();
     st.last = 0;
-    setTimeout(tick, 100);
+    setTimeout(tick, 20);
     const viewTick = () => {
-      if (window.__app.view === view && st.viewAt === null) st.viewAt = performance.now() - st.t0;
+      if (st.t0 !== null && window.__app.view === view && st.viewAt === null) st.viewAt = performance.now() - st.t0;
       if (st.viewAt === null && !st.done) requestAnimationFrame(viewTick);
     };
     requestAnimationFrame(viewTick);
   }, { view, ms });
   await start();
   await page.waitForFunction(() => window.__uatFlight.done, null, { timeout: ms + 5000 }).catch(() => {});
-  return page.evaluate(() => ({ viewMs: window.__uatFlight.viewAt, steps: window.__uatFlight.steps }));
+  return page.evaluate(() => ({ clicked: window.__uatFlight.t0 !== null, viewMs: window.__uatFlight.viewAt, steps: window.__uatFlight.steps }));
 }
 /** Our threshold for "the camera is flying": over 2 % of the 160 x 120 picture changes between two copies. */
 export const MOVING_PX = 0.02;

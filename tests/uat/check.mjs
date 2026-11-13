@@ -1,6 +1,6 @@
 // UAT, SPEC 4 + 6.1 + 6.3 + 7: the "Nhà tôi có bị ảnh hưởng không?" check, verdict card, province picker.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/check.mjs
-import { PLACE_INSIDE, PLACE_START, centreInside, placeOf, verdictMismatch, ACTIONS, ACTIONS_SOURCE, HAI_PHONG, HCM, PROVINCES, SUMMARY_AT_NOW, T, TIME_RE, VERDICT_NOTE, actionTexts, check, context, events, finish, headAffected, headUnaffected, open, parseKm, pickProvince, province, refWindLevel, runCheck, scenario, skipOnboarding, text, verdictWind, visible, vnTime, vtext, waitVisible, DRAW_COUNTER } from './lib.mjs';
+import { BTN_ADVICE, PLACE_INSIDE, PLACE_START, centreInside, placeOf, verdictMismatch, ACTIONS, ACTIONS_SOURCE, HAI_PHONG, HCM, PROVINCES, SUMMARY_AT_NOW, T, TIME_RE, VERDICT_NOTE, norm, check, context, events, finish, headAffected, headUnaffected, open, parseKm, pickProvince, province, refWindLevel, runCheck, scenario, skipOnboarding, text, verdictWind, visible, vnTime, vtext, waitVisible, DRAW_COUNTER } from './lib.mjs';
 
 const PICK_LINE = 'Không lấy được vị trí. Chọn tỉnh của bạn:';
 const HP = province('Hải Phòng');
@@ -8,21 +8,17 @@ const HP = province('Hải Phòng');
 const HCM_NAME = 'TP. Hồ Chí Minh';
 const HCMP = PROVINCES.find((p) => p.id === 'ho-chi-minh') ?? null;
 const verdictState = (page) => page.evaluate(() => window.__app.verdict);
-// The 3 safety actions: list items if the block is a list, else its child elements.
-const actionCount = (page) => T(page, 'verdict-actions').first().evaluate((e) => { const li = e.querySelectorAll('li'); if (li.length) return li.length; const box = [...e.children].filter((c) => !/^H\d$/.test(c.tagName)); return box.length === 1 ? box[0].children.length : box.length; });
-// SPEC 6.3: the source line [verdict-source] of SPEC 10.3, under the actions.
-async function sourceChecks(page, tag) {
-  const src = await text(page, 'verdict-source').catch(() => '');
-  check(`${tag}verdict-source = the SPEC 10.3 source line`, (await visible(page, 'verdict-source')) && src === ACTIONS_SOURCE, src);
-  const a = await T(page, 'verdict-actions').first().boundingBox().catch(() => null);
-  const s = await T(page, 'verdict-source').first().boundingBox().catch(() => null);
-  check(`${tag}verdict-source sits under verdict-actions`, !!a && !!s && s.y >= a.y + a.height - 1, `${JSON.stringify(a)} / ${JSON.stringify(s)}`);
-  // SPEC 10: each source line is "shown in small text": smaller than the page's base (root) font size.
-  const fs = await page.evaluate(() => {
-    const e = document.querySelector('[data-test="verdict-source"]');
-    return e ? { src: parseFloat(getComputedStyle(e).fontSize), root: parseFloat(getComputedStyle(document.documentElement).fontSize) } : null;
-  });
-  check(`${tag}verdict-source is in small text (font size below the root font size)`, !!fs && fs.src < fs.root, JSON.stringify(fs));
+// SPEC 6.3 "Both: no action list and no heading over actions", one btn-advice; 10.3 "not shown in the verdict card".
+async function noActionsInVerdict(page, tag) {
+  const card = norm((await T(page, 'verdict').first().textContent()) ?? '');
+  check(`${tag}the verdict card has no verdict-actions and no verdict-source element`, (await T(page, 'verdict-actions').count()) === 0 && (await T(page, 'verdict-source').count()) === 0);
+  const shown = ACTIONS.filter((a) => card.includes(a));
+  check(`${tag}the verdict card shows none of the 3 SPEC 10.3 actions`, shown.length === 0, shown.join(' | '));
+  check(`${tag}the verdict card has no list (no action list)`, (await T(page, 'verdict').first().locator('ul, ol, li').count()) === 0);
+  check(`${tag}the verdict card does not hold the 10.3 source line`, !card.includes(ACTIONS_SOURCE));
+  const n = await T(page, 'verdict').first().locator('[data-test="btn-advice"]').count();
+  const adv = await text(page, 'btn-advice').catch(() => '');
+  check(`${tag}one btn-advice in the verdict card, visible, reading "${BTN_ADVICE}"`, n === 1 && (await visible(page, 'btn-advice')) && adv === BTN_ADVICE, `${n} / ${adv}`);
 }
 // SPEC 6.3 step 4: the pin marks the place on the globe. Polls up to 8 s so a camera flight can finish.
 // SPEC 6.2 / 6.3 step 4: the map view is fixed, so a verdict moves no camera: storm-marker keeps its place on screen.
@@ -106,7 +102,7 @@ await scenario('geolocation granted at Hải Phòng (1440x900)', async () => {
   check('__app.verdict for Hải Phòng equals the tests\' own SPEC 5 verdict on yagi.json (times ±30 min, distance ±1 %, wind ±1 kt)', mis === '', mis);
   const head = await text(page, 'verdict-head');
   // SPEC 6.3 step 2: inside a sentence the place is "vị trí của bạn" (lower case).
-  check(`verdict-head = "${headAffected(PLACE_INSIDE)}" (place in lower case inside the sentence)`, head === headAffected(PLACE_INSIDE), head);
+  check(`verdict-head = "${headAffected(PLACE_INSIDE)}" (place in lower case inside the sentence, after "Theo bản mô phỏng: ")`, head === headAffected(PLACE_INSIDE), head);
   const when = await text(page, 'verdict-when');
   const m = when.match(/^Từ khoảng (.+) đến (.+)$/);
   check('verdict-when = "Từ khoảng {HH:mm, dd/MM} đến {HH:mm, dd/MM}"', !!m && TIME_RE.test(m[1]) && TIME_RE.test(m[2]), when);
@@ -118,15 +114,7 @@ await scenario('geolocation granted at Hải Phòng (1440x900)', async () => {
   check('verdict-wind is visible', await visible(page, 'verdict-wind'));
   check('verdict-wind = "Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)" with n = windLevel(peakWindKt)', wantLevel !== null && wind === verdictWind(wantLevel), `${wind} / peakWindKt ${v?.peakWindKt} -> ${wantLevel}`);
   check('affected card has no verdict-note', !(await visible(page, 'verdict-note')));
-  const card = (await T(page, 'verdict').first().textContent()) ?? '';
-  check('affected card has the heading "Bạn nên làm ngay"', card.includes('Bạn nên làm ngay'));
-  check('affected card does not have the unaffected heading "Vẫn nên theo dõi tin bão"', !card.includes('Vẫn nên theo dõi tin bão'));
-  const actions = T(page, 'verdict-actions').first();
-  const items = await actionCount(page);
-  check('verdict-actions is visible with 3 safety actions', (await actions.isVisible()) && items === 3, `li=${items}`);
-  const acts = await actionTexts(page);
-  check('verdict-actions are the 3 actions of SPEC 10.3, word for word, in order', JSON.stringify(acts) === JSON.stringify(ACTIONS), JSON.stringify(acts));
-  await sourceChecks(page, '');
+  await noActionsInVerdict(page, '');
   await pinOnGlobe(page, '');
   await pinLabel(page, '');
   await page.mouse.move(5, 5);
@@ -167,7 +155,7 @@ await scenario('geolocation granted at TP. Hồ Chí Minh (375x812 touch)', asyn
   const aff = await T(page, 'verdict').first().getAttribute('data-affected');
   check('(375) verdict data-affected="false"', aff === 'false', aff);
   const head = await text(page, 'verdict-head');
-  check(`(375) verdict-head = "${headUnaffected(PLACE_START)}" (place at the start of the sentence)`, head === headUnaffected(PLACE_START), head);
+  check(`(375) verdict-head = "${headUnaffected(PLACE_INSIDE)}" (place in lower case inside the sentence, after "Theo bản mô phỏng: ")`, head === headUnaffected(PLACE_INSIDE), head);
   const when = await text(page, 'verdict-when');
   const v = await verdictState(page);
   const mis = verdictMismatch(v, placeOf(HCM));
@@ -179,14 +167,9 @@ await scenario('geolocation granted at TP. Hồ Chí Minh (375x812 touch)', asyn
     check('(375) the km figure is the closest distance (within 1 % or 1 km)', Math.abs(km - v.closest.distanceKm) <= Math.max(1, v.closest.distanceKm * 0.01), `${km} vs ${v.closest.distanceKm}`);
     check('(375) the time is closest.time in Vietnam time', m[3] === vnTime(v.closest.time), `${m[3]} vs ${vnTime(v.closest.time)}`);
   }
-  const card = (await T(page, 'verdict').first().textContent()) ?? '';
-  check('(375) unaffected card has "Vẫn nên theo dõi tin bão" and the 3 actions', card.includes('Vẫn nên theo dõi tin bão') && (await actionCount(page)) === 3);
-  check('(375) unaffected card does not have the affected heading "Bạn nên làm ngay"', !card.includes('Bạn nên làm ngay'));
   check(`(375) verdict-note = "${VERDICT_NOTE}"`, (await visible(page, 'verdict-note')) && (await text(page, 'verdict-note')) === VERDICT_NOTE, await text(page, 'verdict-note').catch(() => ''));
   check('(375) unaffected card has no verdict-wind', !(await visible(page, 'verdict-wind')));
-  const acts = await actionTexts(page);
-  check('(375) unaffected verdict-actions are the same 3 actions, in order', JSON.stringify(acts) === JSON.stringify(ACTIONS), JSON.stringify(acts));
-  await sourceChecks(page, '(375) ');
+  await noActionsInVerdict(page, '(375) ');
   await pinOnGlobe(page, '(375) ');
   await pinLabel(page, '(375) ');
   await page.waitForTimeout(2000);

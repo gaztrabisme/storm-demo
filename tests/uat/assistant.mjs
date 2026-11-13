@@ -1,6 +1,6 @@
-// UAT, SPEC 6.4: Usui-chan warning pop-up, question sheet and its 7 chips.
+// UAT, SPEC 6.4: Usui-chan portrait, question sheet and its 7 chips. (No warning pop-up: see notwarning.mjs.)
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/assistant.mjs
-import { ACTIONS, ACTIONS_SOURCE, CARD_RADIUS, CARD_WIND, parseKm, TRACK, refWindLevel, url, verdictMismatch, HAI_PHONG, HCM, T, TIME_IN, actionTexts, headAffected, learnCards, norm, check, context, finish, open, runCheck, scenario, skipOnboarding, text, visible, vnTime, waitView, waitVisible } from './lib.mjs';
+import { ACTIONS, ACTIONS_SOURCE, PREPARE_LEAD, CARD_RADIUS, CARD_WIND, parseKm, TRACK, refWindLevel, url, verdictMismatch, HAI_PHONG, HCM, T, TIME_IN, headAffected, learnCards, norm, check, context, finish, open, runCheck, scenario, skipOnboarding, text, visible, vnTime, waitView, waitVisible } from './lib.mjs';
 
 const CHIPS = {
   affected: 'Nhà tôi có bị ảnh hưởng không?',
@@ -29,11 +29,10 @@ const TOI = /(^|[^\p{L}])tôi(?![\p{L}])/iu;
 const voiceOk = (a) => /(^|[^\p{L}])(mình|bạn)(?![\p{L}])/iu.test(a) && !TOI.test(Object.values(CHIPS).reduce((s, c) => s.split(c).join(' '), a));
 const answer = async (page) => ((await visible(page, 'assistant-answer')) ? await text(page, 'assistant-answer') : '');
 
-await scenario('warning after an affected verdict, once per session (1440x900)', async () => {
+await scenario('portrait, and __app.setPlace after a verdict (1440x900)', async () => {
   const ctx = await context({ geo: HAI_PHONG });
   const page = await open(ctx);
   await skipOnboarding(page);
-  check('no warning before any check', !(await visible(page, 'assistant-warning')));
   const av = await T(page, 'assistant-avatar').first().boundingBox();
   check('assistant-avatar is about 56 px', !!av && Math.abs(av.width - 56) <= 4 && Math.abs(av.height - 56) <= 4, JSON.stringify(av));
   const img = await T(page, 'assistant-avatar').first().evaluate(async (e) => {
@@ -51,55 +50,14 @@ await scenario('warning after an affected verdict, once per session (1440x900)',
   const corner = !!av && Math.min(av.x, vp.width - av.x - av.width) <= 24 && Math.min(av.y, vp.height - av.y - av.height) <= 24;
   check('assistant-avatar sits in a corner of the viewport (within 24 px of two edges, our threshold)', corner, `${JSON.stringify(av)} in ${vp.width}x${vp.height}`);
   await runCheck(page);
-  await waitVisible(page, 'assistant-warning', 5000).catch(() => {});
-  check('the warning appears after an affected verdict', await visible(page, 'assistant-warning'));
   const v = await page.evaluate(() => window.__app.verdict);
-  const w = await text(page, 'assistant-warning');
-  const wm = w.match(/Vị trí của bạn sẽ có gió từ cấp 8 trở lên từ khoảng (\d{2}:\d{2}, \d{2}\/\d{2})\. Bấm vào mình nếu cần hỏi gì nhé\./);
-  check('warning text "{place} sẽ có gió từ cấp 8 trở lên từ khoảng {firstInside}. Bấm vào mình nếu cần hỏi gì nhé."', !!wm && !!v?.firstInside && wm[1] === vnTime(v.firstInside), w);
-  check('warning has no emoji', !EMOJI.test(w));
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(400);
-  check('Esc closes the warning', !(await visible(page, 'assistant-warning')));
-  // A second affected verdict in the same session.
+  // A second verdict in the same session, through the test hook.
   await page.evaluate(() => window.__app.setPlace(21.0285, 105.8542, 'Hà Nội'));
   await page.waitForTimeout(1500);
   check('__app.setPlace runs a new verdict', (await page.evaluate(() => window.__app.verdict?.affected)) === true && v !== null);
   const mis = verdictMismatch(await page.evaluate(() => window.__app.verdict), { lat: 21.0285, lon: 105.8542 });
   check('__app.setPlace(21.0285, 105.8542) gives the tests\' own SPEC 5 verdict for that point (times ±30 min, distance ±1 %, wind ±1 kt)', mis === '', mis);
   check(`__app.setPlace uses its label: verdict-head "${headAffected('Hà Nội')}"`, (await text(page, 'verdict-head')) === headAffected('Hà Nội'), await text(page, 'verdict-head'));
-  check('the warning does not appear a second time in the session', !(await visible(page, 'assistant-warning')));
-  const ev = (await page.evaluate(() => window.__app.events())).filter((e) => e.type === 'assistant_warning_shown').length;
-  check('assistant_warning_shown logged exactly once', ev === 1, `${ev}`);
-  // "Once per session": SPEC 7 makes a new session on each page open. A second page in the same browser (same
-  // localStorage, new session) shows the warning again after an affected verdict.
-  const page2 = await open(ctx);
-  await skipOnboarding(page2);
-  await runCheck(page2);
-  await waitVisible(page2, 'assistant-warning', 5000).catch(() => {});
-  check('a new page open (new session, same localStorage) shows the warning again after an affected verdict', await visible(page2, 'assistant-warning'));
-  await ctx.close();
-});
-
-await scenario('the warning can be closed with its × button', async () => {
-  const ctx = await context({ geo: HAI_PHONG, phone: true });
-  const page = await open(ctx);
-  await skipOnboarding(page);
-  await runCheck(page);
-  await waitVisible(page, 'assistant-warning', 5000);
-  await T(page, 'assistant-warning').first().getByRole('button', { name: /^(×|✕|Đóng)/ }).first().click();
-  await page.waitForTimeout(400);
-  check('(375) × closes the warning', !(await visible(page, 'assistant-warning')));
-  await ctx.close();
-});
-
-await scenario('no warning after an unaffected verdict', async () => {
-  const ctx = await context({ geo: HCM });
-  const page = await open(ctx);
-  await skipOnboarding(page);
-  await runCheck(page);
-  await page.waitForTimeout(2000);
-  check('no warning for TP. Hồ Chí Minh (unaffected)', !(await visible(page, 'assistant-warning')));
   await ctx.close();
 });
 
@@ -120,7 +78,6 @@ await scenario('question sheet and chips', async () => {
   await waitVisible(page, 'verdict', 15000).catch(() => {});
   check('chip "when" with no verdict yet runs the check', await visible(page, 'verdict'));
   await page.waitForTimeout(800);
-  await page.keyboard.press('Escape'); // close the warning if it is open
   await clickChip(page, 'when');
   await page.waitForTimeout(500);
   const aWhen = await answer(page);
@@ -138,14 +95,33 @@ await scenario('question sheet and chips', async () => {
     await page.waitForTimeout(400);
     const a = norm(await answer(page));
     check(`chip "${id}" shows assistant-answer text`, a.length > 0, a.slice(0, 120));
-    const label = id === 'prepare' ? 'the 3 safety actions of SPEC 10.3' : `each line of the SPEC 10 card "${cardOf[id].title}"`;
+    const label = id === 'prepare' ? 'the 3 official advice lines of SPEC 10.3' : `each line of the SPEC 10 card "${cardOf[id].title}"`;
     check(`chip "${id}" answer contains ${label}`, want[id].length > 0 && want[id].every((w) => w.length > 0 && a.includes(w)), `${a.slice(0, 160)} / want ${JSON.stringify(want[id]).slice(0, 160)}`);
+    if (id === 'prepare') {
+      // SPEC 6.4: the 3 actions of 10.3, in order, "with the 10.3 source line under them".
+      const at = want.prepare.map((w) => a.indexOf(w));
+      check('chip "prepare" answer gives the 3 actions in the SPEC 10.3 order', at.every((x) => x >= 0) && at[0] < at[1] && at[1] < at[2], JSON.stringify(at));
+      // SPEC 6.4: the lead-in comes first, then the 3 actions.
+      const lead = a.indexOf(norm(PREPARE_LEAD));
+      check(`chip "prepare" answer opens the actions with the lead-in "${PREPARE_LEAD}"`, lead >= 0 && at.every((x) => x >= 0 && x > lead), `lead-in at ${lead}, actions at ${JSON.stringify(at)}; ${a.slice(0, 120)}`);
+      const src = a.indexOf(norm(ACTIONS_SOURCE));
+      check('chip "prepare" answer has the SPEC 10.3 source line after the 3 actions', src >= 0 && at.every((x) => x >= 0 && x < src), `source at ${src}, actions at ${JSON.stringify(at)}`);
+      const box = await page.evaluate((srcText) => {
+        const ans = document.querySelector('[data-test="assistant-answer"]');
+        if (!ans) return null;
+        const norm = (s) => (s ?? '').replace(/\s+/g, ' ').trim();
+        let best = null;
+        for (const e of ans.querySelectorAll('*')) if (norm(e.textContent) === srcText && (!best || best.contains(e))) best = e;
+        return best ? { src: parseFloat(getComputedStyle(best).fontSize), root: parseFloat(getComputedStyle(document.documentElement).fontSize) } : null;
+      }, norm(ACTIONS_SOURCE));
+      check('chip "prepare": the source line is its own element in small text (font size below the root font size)', !!box && box.src < box.root, JSON.stringify(box));
+    }
     check(`chip "${id}" answer has no emoji`, !EMOJI.test(a));
     // SPEC 10.5: the answer is built only from 10.1-10.4 and the verdict. With the approved lines (and the card's title
-    // and source line; for prepare, the 10.3 source line) taken out, what is left may only join them. Our threshold:
+    // and source line; for prepare, the lead-in and the 10.3 source line) taken out, what is left may only join them. Our threshold:
     // no digit, at most 15 words.
     let rest = a;
-    for (const w of [...want[id], ...(cardOf[id] ? [norm(cardOf[id].title), norm(cardOf[id].source)] : [norm(ACTIONS_SOURCE)])]) rest = rest.split(w).join(' ');
+    for (const w of [...want[id], ...(cardOf[id] ? [norm(cardOf[id].title), norm(cardOf[id].source)] : [norm(PREPARE_LEAD), norm(ACTIONS_SOURCE)])]) rest = rest.split(w).join(' ');
     rest = norm(rest);
     const words = rest.split(/\s+/).filter((x) => /\p{L}/u.test(x)).length;
     check(`chip "${id}" answer adds nothing beyond the approved lines (the rest has no digit and at most 15 words)`, !/\d/.test(rest) && words <= 15, JSON.stringify(rest.slice(0, 160)));

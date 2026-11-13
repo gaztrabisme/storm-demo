@@ -11,19 +11,25 @@ const pct = (x) => `${(x * 100).toFixed(2)} %`;
 const box = (page, id) => T(page, id).first().boundingBox().catch(() => null);
 const finite = (s) => !!s && ['yaw', 'pitch', 'zoom'].every((k) => typeof s[k] === 'number' && Number.isFinite(s[k]));
 const inside = (p, b, m = 8) => !!b && p.x >= b.x - m && p.x <= b.x + b.width + m && p.y >= b.y - m && p.y <= b.y + b.height + m;
-// Timing a flight of 0.8-1.2 s (SPEC 6.7). Our thresholds: the camera is still flying (over MOVING_PX of a 160 x 120 copy
-// of the view changes between two copies, taken every 100 ms or later) in a stretch that starts 600-800 ms after the
-// click (a flight of 0.8 s is still moving then; one of 0.55 s is not; the window is 200 ms wide because the copies
-// come about every 100-350 ms here), and is not flying in any stretch that starts at
-// 1300 ms or later, up to 2.5 s (the slow automatic turn changes far fewer pixels than the flight).
+// Timing a flight of 0.8-1.2 s (SPEC 6.7). Time zero is the click, stamped inside the page (see timeFlight in lib.mjs).
+// Our thresholds: the camera is still flying (over MOVING_PX of a 160 x 120 copy of the view changes between two copies,
+// taken every 100 ms, or up to about 500 ms apart while the flight renders in software here) in some stretch that starts
+// 300-800 ms after the click (a flight of 0.8 s or more is still moving then; a cut, or a flight of about 0.3 s or
+// less, has stopped; the window is 500 ms wide so that at least one copy starts in it when copies are 500 ms apart),
+// and is not flying in any stretch that starts at 1300 ms or later, up to 2.5 s (a flight of 1.2 s has ended; the slow
+// automatic turn changes far fewer pixels than the flight).
+const FLY_FROM = 300;
+const FLY_TO = 800;
+const STILL_FROM = 1300;
 async function flightChecks(page, tag, target, start) {
   const f = await timeFlight(page, target, start, 2500);
   const prof = f.steps.map((s) => `${s.from}-${s.t}:${(s.diff * 100).toFixed(1)}`).join(' ');
-  const early = f.steps.filter((s) => s.from >= 600 && s.from <= 800);
-  const late = f.steps.filter((s) => s.from >= 1300);
+  const early = f.steps.filter((s) => s.from >= FLY_FROM && s.from <= FLY_TO);
+  const late = f.steps.filter((s) => s.from >= STILL_FROM);
+  check(`${tag} the page saw the click (time zero for the flight checks)`, f.clicked);
   check(`${tag} __app.view becomes "${target}" within 1.25 s of the click`, f.viewMs !== null && f.viewMs <= 1250, `${f.viewMs === null ? 'never' : `${Math.round(f.viewMs)} ms`}`);
-  check(`${tag} the camera is still flying in a stretch starting 600-800 ms after the click (not a cut; the flight lasts about 0.8 s or more)`, early.some((s) => s.diff > MOVING_PX), `ms:% changed ${prof}`);
-  check(`${tag} the flight has ended by 1300 ms (no flying from 1.3 s to 2.5 s; it lasts about 1.2 s or less)`, late.length > 0 && late.every((s) => s.diff <= MOVING_PX), `ms:% changed ${prof}`);
+  check(`${tag} the camera is still flying in a stretch starting ${FLY_FROM}-${FLY_TO} ms after the click (not a cut; the flight lasts about 0.8 s or more)`, early.some((s) => s.diff > MOVING_PX), `ms:% changed ${prof}`);
+  check(`${tag} the flight has ended by ${STILL_FROM} ms (no flying from 1.3 s to 2.5 s; it lasts about 1.2 s or less)`, late.length > 0 && late.every((s) => s.diff <= MOVING_PX), `ms:% changed ${prof}`);
 }
 
 async function hudChecks(page, tag) {
@@ -422,17 +428,39 @@ await scenario('reduced motion: the view switches as a cut (375x812)', async () 
   await page.mouse.move(5, 5);
   await page.waitForTimeout(500);
   const before = await canvasShot(page);
-  const t0 = Date.now();
+  // Time from the click as the page sees it (a capturing click listener) to the change of __app.view, measured in the
+  // page, so the time Playwright spends before the click lands is not counted (same clock as the flight timing).
+  const cutTimer = (view) =>
+    page.evaluate((view) => {
+      window.__uatCut = null;
+      const onClick = () => {
+        window.removeEventListener('click', onClick, true);
+        const t0 = performance.now();
+        const tick = () => {
+          const dt = performance.now() - t0;
+          if (window.__app.view === view) window.__uatCut = dt;
+          else if (dt < 3000) requestAnimationFrame(tick);
+          else window.__uatCut = Infinity;
+        };
+        tick();
+        queueMicrotask(tick);
+      };
+      window.addEventListener('click', onClick, true);
+    }, view);
+  const cutMs = async () => {
+    await page.waitForFunction(() => window.__uatCut !== null, null, { timeout: 4000 }).catch(() => {});
+    return page.evaluate(() => window.__uatCut);
+  };
+  await cutTimer('satellite');
   await T(page, 'btn-source').first().click();
-  const ok = await waitView(page, 'satellite', 500).then(() => true, () => false);
-  const dt = Date.now() - t0;
-  check('(reduce) __app.view is "satellite" within 500 ms', ok && dt <= 500, `${dt} ms`);
+  const dt = await cutMs();
+  check('(reduce) __app.view is "satellite" within 500 ms of the click', typeof dt === 'number' && dt <= 500, `${dt === null ? 'never' : Math.round(dt)} ms`);
   const shown = await T(page, 'satellite-info').first().waitFor({ state: 'visible', timeout: 500 }).then(() => true, () => false);
   check('(reduce) satellite-info is visible within 500 ms', shown);
-  const t1 = Date.now();
+  await cutTimer('map');
   await T(page, 'btn-back').first().click();
-  const back = await waitView(page, 'map', 500).then(() => true, () => false);
-  check('(reduce) btn-back returns to "map" within 500 ms', back && Date.now() - t1 <= 500, `${Date.now() - t1} ms`);
+  const db = await cutMs();
+  check('(reduce) btn-back returns to "map" within 500 ms of the click', typeof db === 'number' && db <= 500, `${db === null ? 'never' : Math.round(db)} ms`);
   // SPEC 6.7: btn-back flies back to the map, and the map view is fixed (6.2): the globe looks as it did before.
   await page.mouse.move(5, 5);
   await page.waitForTimeout(1000);

@@ -26,6 +26,19 @@ export function sourceVi(id, section) {
   return line.split(' | ')[1].trim();
 }
 
+// ---- SPEC 4 / 6.1 / 6.6 ----
+export const DEMO_LABEL = 'Mô phỏng nghiên cứu – không phải cảnh báo · dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): 07:00, 05/09';
+/** The same label with the demo time as a placeholder, for vi.json. */
+export const DEMO_LABEL_TEMPLATE = 'Mô phỏng nghiên cứu – không phải cảnh báo · dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): {now}';
+export const BULLETIN_TEXT = 'Bản tin chính thức: Trung tâm Dự báo khí tượng thủy văn quốc gia. Trang này sẽ đặt bản tin chính thức ở đây.';
+export const BULLETIN_LINK_TEXT = 'Trung tâm Dự báo khí tượng thủy văn quốc gia';
+export const BULLETIN_HREF = 'https://nchmf.gov.vn';
+export const DISCLAIMER = 'Mô phỏng nghiên cứu – không phải cảnh báo. Research simulation – not a warning.';
+export const ONBOARDING_FULL_LINE = 'Thêm thanh thời gian và danh sách các tỉnh.';
+
+// ---- SPEC 2.1: words and phrases that appear only inside the quoted official advice ----
+export const BANNED_PHRASES = ['sơ tán', 'khẩn cấp', 'Bạn nên làm ngay', 'Vẫn nên theo dõi tin bão'];
+
 // ---- SPEC 6.2 / 6.3 / 6.4 ----
 export const CONE_LEGEND = 'Vòng tròn: nơi tâm bão có thể đi qua';
 export const CONE = [
@@ -39,8 +52,10 @@ export const SUMMARY_AT_NOW = 'Bây giờ (07:00, 05/09): bão Yagi ở Biển �
 export const PLACE_START = 'Vị trí của bạn';
 export const PLACE_INSIDE = 'vị trí của bạn';
 export const TIMELINE_UNAFFECTED_HEADING = 'Không có gió từ cấp 8 trở lên';
-export const headAffected = (place) => `Có. Gió từ cấp 8 trở lên sẽ tới ${place}`;
-export const headUnaffected = (place) => `Không. ${place} nằm ngoài vùng gió từ cấp 8 trở lên`;
+export const headAffected = (place) => `Theo bản mô phỏng: ${place} nằm trong vùng gió từ cấp 8 trở lên`;
+export const headUnaffected = (place) => `Theo bản mô phỏng: ${place} nằm ngoài vùng gió từ cấp 8 trở lên`;
+/** SPEC 6.3: the one link-styled button under the verdict that opens the "Làm gì khi bão tới?" card. */
+export const BTN_ADVICE = 'Khuyến cáo phòng tránh bão của cơ quan chức năng';
 export const VERDICT_NOTE = 'Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.';
 export const VERDICT_WIND_TEMPLATE = 'Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)';
 export const verdictWind = (n) => `Sức gió mạnh nhất gần tâm bão: cấp ${n} (ước tính)`;
@@ -74,12 +89,14 @@ export const CARD_RADIUS = {
   source: 'Nguồn: Quyết định 18/2021/QĐ-TTg; Cơ quan Khí tượng Nhật Bản, báo cáo năm 2023; IBTrACS (NOAA).',
 };
 
-// ---- SPEC 10.3 ----
+// ---- SPEC 10.3: the official advice the prepare chip shows (not in the verdict card) ----
 export const ACTIONS = [
   'Cả nhà bàn trước chỗ trú ẩn an toàn nhất; khi chính quyền yêu cầu thì sơ tán ngay.',
   'Dự trữ đủ lương thực, nước uống, thuốc men và đồ dùng thiết yếu.',
   'Tuyệt đối không ra ngoài khi bão đang đổ bộ, trừ khi khẩn cấp và có hướng dẫn của chính quyền.',
 ];
+/** SPEC 6.4: the prepare chip's lead-in, shown before the 3 actions. It is not advice, so SPEC 2.1 still checks it. */
+export const PREPARE_LEAD = 'Khuyến cáo phòng tránh bão của cơ quan chức năng:';
 export const ACTIONS_SOURCE = 'Nguồn: khuyến cáo của Cục Quản lý đê điều và Phòng, chống thiên tai (đăng trên Báo Luật sư Việt Nam); Cổng thông tin điện tử tỉnh Hà Tĩnh.';
 const B1_CORRECTED = 'Theo dõi dự báo, cảnh báo và cập nhật diễn biến của bão để chủ động phòng tránh.';
 const safe = (id, section = 'Safety') => {
@@ -139,12 +156,19 @@ export const APPROVED_FIXED = [
   CARD_WIND.title, ...CARD_WIND.body, CARD_WIND.source,
   CARD_RADIUS.title, ...CARD_RADIUS.body, CARD_RADIUS.source,
   CARD_SAFETY.title, ...CARD_SAFETY.body, CARD_SAFETY.source,
-  ...ACTIONS,
+  PREPARE_LEAD, ...ACTIONS,
   SAT_HEADING, ...SAT_FACTS, SAT_SOURCE,
   CONE_LEGEND,
   ...CREDITS,
   HUD_HEADER, ...HUD_LABELS,
 ];
+
+// ---- SPEC 2.1 / DESIGN.md 3: the colours the map draws with, exposed as window.__app.palette ----
+// stormFill is the wind-area colour before transparency, which DESIGN.md 3 gives as the storm colour.
+export const PALETTE = {
+  light: { storm: '#3E5671', stormFill: '#3E5671', bulletin: '#2E6B57' },
+  dark: { storm: '#9DB2C9', stormFill: '#9DB2C9', bulletin: '#7CC3A6' },
+};
 
 // ---- SPEC 5.5: wind level from the Decision 18/2021 Appendix III table ----
 export const KT_TO_MS = 0.514444;
