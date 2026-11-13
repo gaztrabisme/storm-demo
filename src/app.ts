@@ -176,7 +176,7 @@ export function createActions(store: Store) {
       checkId++;
       const place: Place = { lat, lon, label, ...(id ? { id } : {}) };
       const v = verdict(place, TRACK, NOW_MS);
-      // Logged first: the store update below logs the warning the verdict triggers.
+      // Logged first, before the store update that shows the verdict.
       logEvent('verdict_shown', { affected: v.affected, place: label, msSinceOpen: msSinceOpen() });
       store.set({ place, verdict: v, picker: 'hidden', locating: false });
       globe?.setPlace(place);

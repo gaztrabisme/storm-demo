@@ -1,12 +1,11 @@
-// Usui-chan (SPEC 6.4): the corner portrait, the one-time warning after an affected verdict,
-// and the question sheet with its 7 chips. Pattern from AstroSphere src/guide/.
+// Usui-chan (SPEC 6.4): the corner portrait and the question sheet with its 7 chips. She never speaks
+// unprompted (SPEC 2.1): no pop-up. Pattern from AstroSphere src/guide/.
 import './assistant.css';
 import avatarUrl from '../assets/guide/usui-avatar.webp';
 import type { Actions } from '../app';
 import { t } from '../i18n';
 import { logEvent } from '../log';
 import type { Store } from '../state';
-import { vnTime } from '../storm/format';
 import { h, nextId } from '../ui/dom';
 import { CHIP_IDS, cardAnswer, prepareAnswer, sourceAnswer, whenAnswer, whereAnswer, type Answer, type ChipId } from './answers';
 import { createFigure, talkMs, type Figure } from './figure';
@@ -17,8 +16,6 @@ const NOD_MS = 1400;
 export interface AssistantParts {
   /** Avatar and question sheet, fixed to the viewport. */
   root: HTMLElement;
-  /** The warning pop-up: a speech bubble from the portrait, in the corner outside the map (also inside root). */
-  warning: HTMLElement;
   sheet: HTMLElement;
 }
 
@@ -39,46 +36,6 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     },
     h('img', { class: 'assistant-avatar__img', src: avatarUrl, alt: '', width: 56, height: 56, decoding: 'async' }),
   );
-
-  // ---- Warning pop-up: once per page session, only after an affected verdict.
-  let warned = false;
-  const warningText = h('p', { class: 'assistant-warning__text' });
-  const warningFigure = createFigure('assistant-figure--warning');
-  const warning = h(
-    'div',
-    { test: 'assistant-warning', class: 'assistant-warning', role: 'status', hidden: true },
-    warningFigure.el,
-    // The close button floats at the top right of the text, so the lines under it run the full width.
-    h(
-      'div',
-      { class: 'assistant-warning__body' },
-      h('button', { class: 'assistant-x', type: 'button', 'aria-label': t('assistant.close'), title: t('assistant.close'), text: '×', onclick: () => closeWarning() }),
-      warningText,
-    ),
-  );
-  const closeWarning = () => {
-    if (warning.hidden) return;
-    const hadFocus = warning.contains(document.activeElement);
-    warning.hidden = true;
-    syncFoot();
-    if (hadFocus) avatar.focus({ preventScroll: true });
-  };
-  /**
-   * On a phone, while the warning shows, the page keeps a strip of ground at the bottom (under the panel) that holds the
-   * bubble and the portrait, so the bubble never sits on the verdict it follows (styles.css, --foot-h).
-   */
-  const syncFoot = () => {
-    const root = document.documentElement;
-    // On a desktop the bubble sits on the map (main.ts) and the strip keeps its own height.
-    if (warning.hidden || warning.closest('.globe')) {
-      root.style.removeProperty('--foot-h');
-      root.classList.remove('has-foot');
-      return;
-    }
-    root.style.setProperty('--foot-h', `${Math.max(84, Math.ceil(warning.offsetHeight) + 24)}px`);
-    root.classList.add('has-foot');
-  };
-  new ResizeObserver(() => syncFoot()).observe(warning);
 
   // ---- Question sheet.
   const answer = h('div', { test: 'assistant-answer', class: 'assistant-answer', 'aria-live': 'polite', hidden: true });
@@ -113,7 +70,6 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
   }
 
   function openSheet(): void {
-    closeWarning();
     showChips(false);
     sheet.hidden = false;
     avatar.setAttribute('aria-expanded', 'true');
@@ -170,7 +126,7 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
 
   /**
    * "affected", or "when" asked before any verdict: the sheet stays open while the location is found (Usui-chan
-   * thinks), and answers once the check gives a verdict. An affected verdict's first warning answers "affected" itself.
+   * thinks), and answers once the check gives a verdict.
    */
   let pending: 'affected' | 'when' | null = null;
   /** The sheet was closed so the province picker could be used; it opens again with the answer. */
@@ -220,8 +176,6 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
   }
 
   store.subscribe((s, prev) => {
-    // The warning is about one place: a new check, the province picker or a new place closes it.
-    if ((s.locating && !prev.locating) || (s.picker !== 'hidden' && prev.picker === 'hidden') || s.place !== prev.place) closeWarning();
     // Waiting for the location (SPEC 6.8): Usui-chan thinks.
     if (pending && s.locating && !prev.locating && !sheet.hidden) sheetFigure.play(['think']);
     if (pending && s.picker !== 'hidden' && prev.picker === 'hidden' && !sheet.hidden) {
@@ -230,40 +184,24 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
       closeSheet();
     }
     if (s.verdict === prev.verdict || !s.verdict || !s.place) return;
-    const warnNow = s.verdict.affected && !warned && s.verdict.firstInside !== null;
     if (pending) {
-      const asked = pending;
       pending = null;
       const reopen = reopenForAnswer;
       reopenForAnswer = false;
-      if (asked === 'affected' && warnNow) {
-        // The warning gives the answer; the verdict card shows under it.
-        closeSheet();
-      } else {
-        if (reopen) {
-          sheet.hidden = false;
-          avatar.setAttribute('aria-expanded', 'true');
-        }
-        sayWhen(s.verdict, s.place);
+      if (reopen) {
+        sheet.hidden = false;
+        avatar.setAttribute('aria-expanded', 'true');
       }
-    }
-    if (warnNow && s.verdict.firstInside !== null) {
-      warned = true;
-      warningText.textContent = t('assistant.warning', { place: s.place.label, firstInside: vnTime(s.verdict.firstInside) });
-      warning.hidden = false;
-      syncFoot();
-      warningFigure.play(['alert', 'talk'], { holdMs: talkMs(warningText.textContent) });
-      logEvent('assistant_warning_shown');
+      sayWhen(s.verdict, s.place);
     }
   });
 
-  // Esc closes the warning first, then the sheet. Capture phase, so the satellite view's Esc does not also run.
+  // Esc closes the sheet. Capture phase, so the satellite view's Esc does not also run.
   window.addEventListener(
     'keydown',
     (e) => {
       if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
-      if (!warning.hidden) closeWarning();
-      else if (!sheet.hidden) closeSheet(sheet.contains(document.activeElement));
+      if (!sheet.hidden) closeSheet(sheet.contains(document.activeElement));
       else return;
       e.preventDefault();
       e.stopPropagation();
@@ -271,5 +209,5 @@ export function assistant(store: Store, actions: Actions): AssistantParts {
     true,
   );
 
-  return { root: h('div', { test: 'assistant', class: 'assistant' }, warning, avatar, sheet), warning, sheet };
+  return { root: h('div', { test: 'assistant', class: 'assistant' }, avatar, sheet), sheet };
 }

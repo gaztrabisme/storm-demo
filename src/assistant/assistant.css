@@ -52,75 +52,6 @@
   border-color: var(--ink);
 }
 
-/* ---- Warning: a speech bubble from the portrait. Phone: in Usui-chan's corner under the panel (outside the map).
-   Paper with a 1 px ink edge (DESIGN 5); a small square tail points at the portrait. */
-.assistant-warning {
-  position: fixed;
-  right: 86px;
-  bottom: 12px;
-  z-index: 30;
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  width: min(330px, calc(100vw - 98px));
-  padding: 8px 2px 8px 12px;
-  border: 1px solid var(--ink);
-  border-radius: 0;
-  background: var(--paper);
-  color: var(--ink);
-}
-
-.assistant-warning::after {
-  content: '';
-  position: absolute;
-  right: -6px;
-  bottom: 30px;
-  width: 10px;
-  height: 10px;
-  border-top: 1px solid var(--ink);
-  border-right: 1px solid var(--ink);
-  background: var(--paper);
-  transform: rotate(45deg);
-}
-
-.assistant-warning__body {
-  flex: 1;
-  min-width: 0;
-  align-self: center;
-}
-
-.assistant-warning__body .assistant-x {
-  float: right;
-  margin: -4px 0 0 4px;
-}
-
-.assistant-warning__text {
-  font-weight: 600;
-  line-height: 1.35;
-}
-
-/* Phone: a narrower figure leaves the text a wider column. */
-@media (max-width: 899px) {
-  .assistant-warning .assistant-figure--warning {
-    width: 84px;
-  }
-}
-
-/* Desktop: the bubble sits on the map in its lower left corner, over the open sea south of the track (main.ts moves
-   it into the globe), so it covers neither the track nor the panel. It is too far from the portrait for a tail. */
-.globe .assistant-warning {
-  position: absolute;
-  right: auto;
-  bottom: 40px;
-  left: 56px;
-  z-index: 6;
-  width: min(360px, calc(100% - 80px));
-}
-
-.globe .assistant-warning::after {
-  display: none;
-}
-
 /* ---- Question sheet, above the portrait. */
 .assistant-sheet {
   position: fixed;
@@ -310,11 +241,6 @@
 /* In onboarding the figure ends in open space: a hairline makes its lower edge read as the frame's edge. */
 .assistant-figure--onboarding {
   border-bottom: 1px solid var(--ink);
-}
-
-.assistant-warning .assistant-figure {
-  align-self: flex-end;
-  margin: -4px 0 -8px -6px;
 }
 
 .satinfo__top {

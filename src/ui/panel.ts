@@ -114,14 +114,16 @@ export function checkBlock(store: Store, actions: Actions): HTMLElement {
   return h('div', { class: 'check' }, btn, status, picker);
 }
 
-function actionsList(): HTMLOListElement {
-  return h('ol', { test: 'verdict-actions', class: 'actions' }, ...tList('actions.items').map((a) => h('li', { text: a })));
-}
-
-export function verdictCard(store: Store, actions: Actions): HTMLElement {
-  const el = h('section', { test: 'verdict', class: 'verdict', hidden: true });
-  // Announces only the answer (heading and time). Always rendered, so the first verdict is read out too.
+/**
+ * The verdict card (SPEC 6.3): what the simulation says about the place, with no action list (SPEC 2.1). Its one
+ * link-styled button opens the official advice in the "Làm gì khi bão tới?" card (`openAdvice`).
+ */
+export function verdictCard(store: Store, actions: Actions, openAdvice: () => void): HTMLElement {
+  // Announces only the answer (heading and time). It sits inside the card, the answer to the user's check, so it
+  // is not a message of its own (SPEC 2.1); it is set 100 ms after the card shows, so the first verdict is read too.
   const live = h('p', { class: 'sr-only', role: 'status' });
+  const content = h('div', { class: 'verdict__content' });
+  const el = h('section', { test: 'verdict', class: 'verdict', hidden: true }, live, content);
   let liveTimer = 0;
   const announce = (s: string) => {
     live.textContent = '';
@@ -129,7 +131,6 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
     liveTimer = window.setTimeout(() => (live.textContent = s), 100);
   };
   const render = (v: Verdict, p: Place) => {
-    const label = p.label;
     const inside = placeInSentence(p);
     el.dataset.affected = String(v.affected);
     const body: Node[] = [];
@@ -140,21 +141,18 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
       );
       const n = windLevel(v.peakWindKt);
       if (n !== null) body.push(h('p', { test: 'verdict-wind', class: 'verdict__wind', text: t('verdict.wind', { n }) }));
-      body.push(h('h3', { class: 'verdict__sub', text: t('verdict.actionsAffected') }));
     } else {
       body.push(
-        h('h2', { test: 'verdict-head', class: 'verdict__head', text: t('verdict.headUnaffected', { place: label }) }),
+        h('h2', { test: 'verdict-head', class: 'verdict__head', text: t('verdict.headUnaffected', { place: inside }) }),
         h('p', { test: 'verdict-when', class: 'verdict__when', text: t('verdict.closest', { place: inside, km: km(v.closest.distanceKm), time: vnTime(v.closest.time) }) }),
         h('p', { test: 'verdict-note', class: 'verdict__note', text: t('verdict.note') }),
-        h('h3', { class: 'verdict__sub', text: t('verdict.actionsUnaffected') }),
       );
     }
     body.push(
-      actionsList(),
-      h('p', { test: 'verdict-source', class: 'source', text: t('actions.source') }),
+      h('button', { test: 'btn-advice', class: 'btn btn--link', type: 'button', text: t('verdict.advice'), onclick: () => openAdvice() }),
       h('button', { test: 'btn-recheck', class: 'btn', type: 'button', text: t('verdict.recheck'), onclick: () => actions.openPicker() }),
     );
-    el.replaceChildren(...body);
+    content.replaceChildren(...body);
     el.hidden = false;
     announce(`${body[0].textContent ?? ''}. ${body[1].textContent ?? ''}`);
   };
@@ -165,7 +163,7 @@ export function verdictCard(store: Store, actions: Actions): HTMLElement {
       el.scrollIntoView({ block: 'nearest' });
     } else el.hidden = true;
   });
-  return h('div', { class: 'verdict-host' }, live, el);
+  return h('div', { class: 'verdict-host' }, el);
 }
 
 /**
@@ -244,7 +242,13 @@ function card(id: string, body: Node[]): HTMLDetailsElement {
   return d;
 }
 
-export function learnBlock(store: Store): HTMLElement {
+export interface LearnBlock {
+  el: HTMLElement;
+  /** SPEC 6.3 btn-advice: shows the "Làm gì khi bão tới?" card (opening "Tìm hiểu thêm" first in easy mode) and focuses its heading. */
+  openAdvice(): void;
+}
+
+export function learnBlock(store: Store): LearnBlock {
   const para = (s: string) => h('p', { text: s });
   const sections = (lookup('cards.safety.sections') as unknown as SafetySection[]) ?? [];
   const cards = [
@@ -268,5 +272,14 @@ export function learnBlock(store: Store): HTMLElement {
     if (modeOf(s) !== modeOf(prev)) render();
   });
   render();
-  return el;
+  const safety = cards[2];
+  const openAdvice = () => {
+    logEvent('learn_open', { card: 'prepare' });
+    if (modeOf(store.state) === 'easy') more.open = true;
+    safety.open = true;
+    const head = safety.querySelector('summary');
+    head?.focus({ preventScroll: true });
+    safety.scrollIntoView({ block: 'start' });
+  };
+  return { el, openAdvice };
 }

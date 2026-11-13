@@ -1,6 +1,7 @@
 # Bản đồ bão (demo)
 
-Trang thử nghiệm của CLB Thiên văn USAC: phát lại bão Yagi (2024) như một bản tin dự báo, để thử xem người dùng có hiểu ngay nơi mình ở có bị ảnh hưởng không, khi nào, và cần làm gì.
+Trang thử nghiệm của CLB Thiên văn USAC: phát lại bão Yagi (2024) như một bản tin dự báo, để thử xem người dùng có hiểu ngay nơi mình ở có nằm trong vùng gió mạnh của bản mô phỏng không và khi nào.
+Mô phỏng nghiên cứu – không phải cảnh báo.
 
 Đây không phải dự báo thật. Mọi số liệu là của cơn bão đã qua.
 

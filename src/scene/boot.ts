@@ -868,6 +868,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       return { lat: Math.asin(Math.max(-1, Math.min(1, cv.y))) / RAD, lon: Math.atan2(-cv.z, cv.x) / RAD };
     },
     isLand,
+    noteHost: pinEl,
   });
 
   let metricsKey = '';

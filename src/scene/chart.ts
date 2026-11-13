@@ -22,6 +22,11 @@ export interface ChartDeps {
   /** Surface point under a screen position, or null when the ray misses the Earth. */
   pick(x: number, y: number): LatLon | null;
   isLand(lat: number, lon: number): boolean;
+  /**
+   * The place pin's element: the place's note is drawn inside it (in its own SVG laid over the chart), so the note
+   * belongs to the pin the user's check puts on the map rather than appearing on the map by itself (SPEC 2.1).
+   */
+  noteHost?: HTMLElement;
 }
 
 export interface ChartFrame {
@@ -71,6 +76,11 @@ export function createChart(deps: ChartDeps) {
   const gGlyph = el('g', 'chart__glyphs', gMap);
   const gDates = el('g', 'chart__dates', gMap);
   const gNotes = el('g', 'chart__notes', gMap);
+  // The place's note, in an SVG inside the pin's element; it is moved back to the chart's own coordinates on each frame.
+  const pinSvg = deps.noteHost ? el('svg', 'chart chart--pin', deps.noteHost) : null;
+  pinSvg?.setAttribute('aria-hidden', 'true');
+  pinSvg?.setAttribute('focusable', 'false');
+  const gPinNotes = pinSvg ? el('g', 'chart__notes', pinSvg) : gNotes;
 
   const pt = [0, 0];
   const pt2 = [0, 0];
@@ -119,8 +129,8 @@ export function createChart(deps: ChartDeps) {
     h: number;
     box: Box | null;
   }
-  const makeNote = (cls: string): Note => {
-    const g = el('g', `chart__note ${cls}`, gNotes);
+  const makeNote = (cls: string, parent: SVGGElement): Note => {
+    const g = el('g', `chart__note ${cls}`, parent);
     const lead = el('path', 'chart__lead', g);
     const dot = el('circle', 'chart__lead-dot', g);
     dot.setAttribute('r', '2.5');
@@ -130,8 +140,8 @@ export function createChart(deps: ChartDeps) {
     g.style.display = 'none';
     return { g, lead, dot, text, head, body, key: '', w: 0, h: 0, box: null };
   };
-  const stormNote = makeNote('chart__note--storm');
-  const placeNote = makeNote('chart__note--place');
+  const stormNote = makeNote('chart__note--storm', gNotes);
+  const placeNote = makeNote('chart__note--place', gPinNotes);
   const placeVerdict = new Map<string, string>();
 
   let fontKey = '';
@@ -319,12 +329,29 @@ export function createChart(deps: ChartDeps) {
   let scale = 1;
   let pxPerKm = 0;
 
+  /** Puts the pin's SVG origin on the chart's origin: the pin element sits at the pin, the note in chart coordinates. */
+  function alignPinSvg(): void {
+    const host = deps.noteHost;
+    if (!pinSvg || !host) return;
+    const hr = host.getBoundingClientRect();
+    const cr = deps.container.getBoundingClientRect();
+    const x = f1(cr.left - hr.left - host.clientLeft);
+    const y = f1(cr.top - hr.top - host.clientTop);
+    pinSvg.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
   function update(f: ChartFrame): void {
     vw = f.width;
     vh = f.height;
     svg.setAttribute('width', String(f.width));
     svg.setAttribute('height', String(f.height));
     svg.setAttribute('viewBox', `0 0 ${f.width} ${f.height}`);
+    if (pinSvg) {
+      pinSvg.setAttribute('width', String(f.width));
+      pinSvg.setAttribute('height', String(f.height));
+      pinSvg.setAttribute('viewBox', `0 0 ${f.width} ${f.height}`);
+      pinSvg.style.display = f.satView || f.returning ? 'none' : '';
+    }
     const fk = document.documentElement.style.fontSize;
     if (fk !== fontKey) {
       fontKey = fk;
@@ -576,7 +603,10 @@ export function createChart(deps: ChartDeps) {
       const stormBox: number[][] = [];
       if (s && deps.surface(s.lat, s.lon, pt)) stormBox.push([pt[0] - 16, pt[1] - 16, pt[0] + 16, pt[1] + 16]);
       placeNoted = fitNote(placeNote, pt2[0], pt2[1], f, [...taken, ...stormBox, ...(windBox ? [windBox] : [])], glyphPts, f.width < 600 ? PLACE_DISTS_NARROW : PLACE_DISTS, lines);
-      if (placeNoted) taken.push(placeNote.box!);
+      if (placeNoted) {
+        taken.push(placeNote.box!);
+        alignPinSvg();
+      }
     } else placeNote.g.style.display = 'none';
     if (showNotes && s && deps.surface(s.lat, s.lon, pt) && pt[0] >= 0 && pt[0] <= f.width && pt[1] >= 0 && pt[1] <= f.height) {
       const lv = windLevel(s.windKt);

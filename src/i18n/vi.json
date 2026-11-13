@@ -8,8 +8,16 @@
     "source": "Nguồn dữ liệu",
     "settings": "Cài đặt"
   },
+  "bulletin": {
+    "lead": "Bản tin chính thức:",
+    "centre": "Trung tâm Dự báo khí tượng thủy văn quốc gia",
+    "placeholder": "Trang này sẽ đặt bản tin chính thức ở đây."
+  },
+  "disclaimer": {
+    "text": "Mô phỏng nghiên cứu – không phải cảnh báo. Research simulation – not a warning."
+  },
   "demo": {
-    "label": "Bão mô phỏng, dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): {now}"
+    "label": "Mô phỏng nghiên cứu – không phải cảnh báo · dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): {now}"
   },
   "cone": {
     "legend": "Vòng tròn: nơi tâm bão có thể đi qua"
@@ -31,14 +39,13 @@
     "placeholder": "— Chọn tỉnh —"
   },
   "verdict": {
-    "headAffected": "Có. Gió từ cấp 8 trở lên sẽ tới {place}",
+    "headAffected": "Theo bản mô phỏng: {place} nằm trong vùng gió từ cấp 8 trở lên",
     "when": "Từ khoảng {from} đến {to}",
     "wind": "Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)",
-    "actionsAffected": "Bạn nên làm ngay",
-    "headUnaffected": "Không. {place} nằm ngoài vùng gió từ cấp 8 trở lên",
+    "headUnaffected": "Theo bản mô phỏng: {place} nằm ngoài vùng gió từ cấp 8 trở lên",
     "closest": "Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}",
     "note": "Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.",
-    "actionsUnaffected": "Vẫn nên theo dõi tin bão",
+    "advice": "Khuyến cáo phòng tránh bão của cơ quan chức năng",
     "recheck": "Chọn nơi khác"
   },
   "actions": {
@@ -205,7 +212,6 @@
     "poseAlt": "Usui-chan",
     "sheetTitle": "Bạn muốn hỏi mình điều gì?",
     "close": "Đóng",
-    "warning": "{place} sẽ có gió từ cấp 8 trở lên từ khoảng {firstInside}. Bấm vào mình nếu cần hỏi gì nhé.",
     "chips": {
       "affected": "Nhà tôi có bị ảnh hưởng không?",
       "when": "Khi nào bão tới chỗ tôi?",
@@ -217,7 +223,7 @@
     },
     "whenAffected": "Theo mình tính, {place} có gió từ cấp 8 trở lên từ khoảng {from} đến khoảng {to}.",
     "whenUnaffected": "Theo mình tính, {place} nằm ngoài vùng gió từ cấp 8 trở lên; tâm bão gần nhất cách đó khoảng {km} km, lúc {time}. Nơi bạn chọn vẫn có thể có gió cấp 6–7 và mưa lớn.",
-    "prepare": "Bạn nên làm ngay ba việc này:",
+    "prepare": "Khuyến cáo phòng tránh bão của cơ quan chức năng:",
     "card": "Mình chép lại thẻ \"{title}\" cho bạn đọc nhé:",
     "source": "Mình mở phần vệ tinh GK-2A cho bạn xem nhé.",
     "where": "Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính).",

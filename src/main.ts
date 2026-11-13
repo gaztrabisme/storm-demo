@@ -11,6 +11,7 @@ import { h } from './ui/dom';
 import { showOnboarding } from './ui/onboarding';
 import { mapKey } from './ui/key';
 import { checkBlock, learnBlock, stormSummary, timelineList, timeSlider, verdictCard } from './ui/panel';
+import { PALETTE } from './ui/palette';
 import { satelliteInfo } from './ui/satellite';
 import { bindAppearance, settingsDialog } from './ui/settings';
 
@@ -26,12 +27,25 @@ const settings = settingsDialog(store, actions, testMode);
 const btnSource = h('button', { test: 'btn-source', class: 'btn btn--bar', type: 'button', text: t('top.source'), onclick: () => actions.openSatellite() });
 const btnSettings = h('button', { test: 'btn-settings', class: 'btn btn--bar', type: 'button', text: t('top.settings'), onclick: () => settings.open() });
 const topbar = h('header', { class: 'topbar' }, h('h1', { test: 'title', class: 'topbar__title', text: t('app.title') }), h('div', { class: 'topbar__actions' }, btnSource, btnSettings));
+// SPEC 6.1: the official-bulletin block under the top bar (a placeholder with a link, no bulletin content), and the
+// disclaimer footer at the bottom of the page. The bulletin is hidden in the satellite view (styles.css).
+/** The national centre's site: a link the reader may follow, not a request the page makes (SPEC 6.1). */
+const BULLETIN_HREF = 'https://nchmf.gov.vn';
+const bulletin = h(
+  'p',
+  { test: 'official-bulletin', class: 'bulletin' },
+  `${t('bulletin.lead')} `,
+  h('a', { class: 'bulletin__link', href: BULLETIN_HREF, target: '_blank', rel: 'noopener', text: t('bulletin.centre') }),
+  `. ${t('bulletin.placeholder')}`,
+);
+const disclaimer = h('p', { test: 'disclaimer', class: 'disclaimer', text: t('disclaimer.text') });
 
 const loading = h('p', { class: 'globe__loading', text: t('app.loading') });
 const demoLabel = h('p', { test: 'demo-label', class: 'globe__demo', text: t('demo.label', { now: vnTime(NOW_MS) }) });
 // The map key: a worked specimen of the track glyphs with the legend lines (ui/key.ts).
 const key = mapKey();
 const usui = assistant(store, actions);
+const learn = learnBlock(store);
 // Desktop: the map key sits in the open sea at the bottom of the map.
 const globeBottom = h('div', { class: 'globe__bottom' });
 const globeEl = h('section', { test: 'globe', class: 'globe', 'aria-label': t('app.globe') }, loading, demoLabel, globeBottom);
@@ -42,25 +56,17 @@ const panelMain = h(
   timeSlider(store, actions),
   stormSummary(),
   checkBlock(store, actions),
-  verdictCard(store, actions),
+  verdictCard(store, actions, () => learn.openAdvice()),
   timelineList(store, actions),
-  learnBlock(store),
+  learn.el,
 );
 const panel = h('aside', { class: 'panel' }, panelMain, satelliteInfo(store, actions));
 
 // Desktop: the key sits on the map, in the open sea at the lower right. Phone: it folds under the map, at the
 // top of the panel, so the reader meets the key before the controls (DESIGN 2).
-// Usui-chan's warning bubble: on a desktop it sits on the map at the lower left, clear of the track and the panel;
-// on a phone it stays in her corner under the panel.
 const placeKey = (wide: boolean) => {
-  if (wide) {
-    globeBottom.append(key.el);
-    globeEl.append(usui.warning);
-  }
-  else {
-    panelMain.prepend(key.el);
-    usui.root.prepend(usui.warning);
-  }
+  if (wide) globeBottom.append(key.el);
+  else panelMain.prepend(key.el);
 };
 try {
   const wideMq = window.matchMedia('(min-width: 900px)');
@@ -69,7 +75,7 @@ try {
 } catch {
   placeKey(true);
 }
-document.getElementById('app')?.replaceChildren(topbar, globeEl, panel, usui.root, settings.el);
+document.getElementById('app')?.replaceChildren(topbar, bulletin, globeEl, panel, disclaimer, usui.root, settings.el);
 
 // Esc leaves the satellite view (dialogs handle their own Esc).
 document.addEventListener('keydown', (e) => {
@@ -154,6 +160,10 @@ if (import.meta.env.DEV || testMode) {
       },
       now: new Date(NOW_MS).toISOString(),
       cone: CONE.map((c) => ({ ...c })),
+      /** SPEC 2.1: the storm and bulletin colours of the current theme (DESIGN 3). */
+      get palette() {
+        return { ...PALETTE[themeOf(s())] };
+      },
       get satellite() {
         return globeRef ? globeRef.satellite() : null;
       },
