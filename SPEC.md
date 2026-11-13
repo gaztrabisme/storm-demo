@@ -155,7 +155,7 @@ Each listed element carries the `data-test` value given in brackets.
 ### 6.6 First run [`onboarding`]
 Shown when `stormdemo.settings.v1` is absent. Three steps. Steps 1 and 2 have `Tiếp` and `Bỏ qua`; step 3 has only `Bắt đầu`:
 1. Text size, with a live preview.
-2. Mode, with one line on each choice. The full-mode line is `Thêm thanh thời gian và danh sách các tỉnh.` (owner-approved 2026-11-13).
+2. Mode, with one line on each choice. The easy-mode line is `Chỉ hiện điều quan trọng nhất: bão có tới chỗ bạn không và khi nào.` and the full-mode line is `Thêm thanh thời gian và danh sách các tỉnh.` (owner-approved 2026-11-13).
 3. `Trang này có thể hỏi vị trí của bạn để biết bão có tới chỗ bạn không. Bạn có thể chọn tỉnh thay vì cho vị trí.`
 
 Finishing or skipping saves the settings and never shows the onboarding again.
