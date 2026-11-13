@@ -101,7 +101,8 @@ Each listed element carries the `data-test` value given in brackets.
 - The strong-wind area at the selected time is drawn as a filled shape around the marker, using the four quadrant radii.
 - **The map can move, but only within the region** (owner, 2026-11-13; replaces the fixed view of 2026-11-12). Both modes. The region is the box that frames the whole track and all of Vietnam for the current layout (phone and desktop may differ); the first view shows exactly that box (zoom 1).
   - Pan: mouse drag or one-finger drag. Zoom: scroll wheel, pinch, or the `+`/`-` keys; arrow keys pan. Keys work when the map has focus.
-  - Zoom runs from 1 (the whole region) to 4. The view never shows anything outside the region box: panning stops at its edges, and at zoom 1 there is nothing to pan.
+  - Zoom runs from 1 (the whole region) to 4. Once the drag ends, the view never shows anything outside the region box.
+  - **Pull and spring back** (owner, 2026-11-13): at zoom 1 a drag still moves the map with the finger or mouse, and past the region's edge when zoomed it moves further, but with growing resistance: the map moves less than the pointer, never more than 12% of the map's shorter side beyond the allowed view. On release it springs back to the default view (zoom 1) or to the nearest allowed view (zoomed) within 0.3 s; under reduced motion it jumps back at once. During the pull `__app.mapView` may change; after the spring-back it equals the allowed view. A pull that ends where it started logs `map_pull` with `{ zoom }` (at most one per 2 s), not `map_move`.
   - Everything drawn on the map (track, labels, circles, wind area, place pin, notes, key position) stays attached to its place while the view moves.
   - A button `Xem toàn vùng` [`btn-map-reset`] shows only while the view is not the whole region; it returns to zoom 1 (a cut under reduced motion, otherwise at most 0.4 s).
   - Nothing moves the map by itself: no camera move after a verdict, a chip or a slider change. The satellite trip (6.7) starts from the current view and returns to it.
@@ -219,6 +220,7 @@ Finishing or skipping saves the settings and never shows the onboarding again.
   - `slider` (throttled to one per 2 s)
   - `map_move` with `{ zoom }` (throttled to one per 2 s)
   - `map_reset`
+  - `map_pull` with `{ zoom }` (throttled to one per 2 s)
   - `satellite_open`, `satellite_close`
   - `learn_open` with `{ card }`
 - `btn-export` downloads `stormdemo-log-{session}.json` with all stored events, and a `Xóa dữ liệu` button [`btn-clear-log`] clears them.
