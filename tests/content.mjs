@@ -34,10 +34,11 @@ export const BULLETIN_TEXT = 'Bản tin chính thức: Trung tâm Dự báo khí
 export const BULLETIN_LINK_TEXT = 'Trung tâm Dự báo khí tượng thủy văn quốc gia';
 export const BULLETIN_HREF = 'https://nchmf.gov.vn';
 export const DISCLAIMER = 'Mô phỏng nghiên cứu – không phải cảnh báo. Research simulation – not a warning.';
+export const ONBOARDING_EASY_LINE = 'Chỉ hiện điều quan trọng nhất: bão có tới chỗ bạn không và khi nào.';
 export const ONBOARDING_FULL_LINE = 'Thêm thanh thời gian và danh sách các tỉnh.';
 
 // ---- SPEC 2.1: words and phrases that appear only inside the quoted official advice ----
-export const BANNED_PHRASES = ['sơ tán', 'khẩn cấp', 'Bạn nên làm ngay', 'Vẫn nên theo dõi tin bão'];
+export const BANNED_PHRASES = ['sơ tán', 'khẩn cấp', 'Bạn nên làm ngay', 'Vẫn nên theo dõi tin bão', 'nên làm gì'];
 
 // ---- SPEC 6.2 / 6.3 / 6.4 ----
 export const CONE_LEGEND = 'Vòng tròn: nơi tâm bão có thể đi qua';

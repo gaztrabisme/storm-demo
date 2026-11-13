@@ -1,6 +1,6 @@
 // UAT, SPEC 6.6 first run [onboarding].
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/onboarding.mjs
-import { ONBOARDING_FULL_LINE, CLEAR_ONCE, SETTINGS_KEY, T, check, context, events, finish, open, pickOption, reload, rootFont, scenario, sel, visible } from './lib.mjs';
+import { ONBOARDING_EASY_LINE, ONBOARDING_FULL_LINE, CLEAR_ONCE, SETTINGS_KEY, T, check, context, events, finish, open, pickOption, reload, rootFont, scenario, sel, visible } from './lib.mjs';
 
 const STEP3 = 'Trang này có thể hỏi vị trí của bạn để biết bão có tới chỗ bạn không. Bạn có thể chọn tỉnh thay vì cho vị trí.';
 const hasKey = (page) => page.evaluate((k) => localStorage.getItem(k) !== null, SETTINGS_KEY);
@@ -26,6 +26,16 @@ await scenario('finish all three steps (1440x900)', async () => {
   const s2 = norm(await ob.textContent());
   check('step 2 offers the modes "Dễ dùng" and "Đầy đủ"', s2.includes('Dễ dùng') && s2.includes('Đầy đủ'), s2.slice(0, 120));
   check(`step 2 has the full-mode line "${ONBOARDING_FULL_LINE}" (SPEC 6.6)`, s2.includes(ONBOARDING_FULL_LINE), s2.slice(0, 200));
+  check(`step 2 has the easy-mode line "${ONBOARDING_EASY_LINE}" (SPEC 6.6)`, s2.includes(ONBOARDING_EASY_LINE), s2.slice(0, 200));
+  // The easy-mode line sits in the easy choice: some element in the onboarding holds "Dễ dùng" and that line, and neither "Đầy đủ" nor the full-mode line.
+  const easyChoice = await ob.evaluate((root, { easy, full }) => {
+    const norm = (s) => (s ?? '').replace(/\s+/g, ' ').trim();
+    return [root, ...root.querySelectorAll('*')].some((e) => {
+      const t = norm(e.textContent);
+      return t.includes('Dễ dùng') && t.includes(easy) && !t.includes('Đầy đủ') && !t.includes(full);
+    });
+  }, { easy: ONBOARDING_EASY_LINE, full: ONBOARDING_FULL_LINE });
+  check('step 2 shows the easy-mode line in the "Dễ dùng" choice, apart from "Đầy đủ"', easyChoice);
   check('step 2 still has "Bỏ qua"', (await ob.getByRole('button', { name: 'Bỏ qua', exact: true }).count()) > 0);
   await pickOption(page, sel('onboarding'), 'Đầy đủ');
   await ob.getByRole('button', { name: 'Tiếp', exact: true }).first().click();

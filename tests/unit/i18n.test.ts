@@ -1,7 +1,7 @@
 // Locked acceptance tests: SPEC section 2, all user-facing text in src/i18n/vi.json, no user-facing English.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, APPROVED_FIXED, BANNED_PHRASES, BTN_ADVICE, BULLETIN_LINK_TEXT, CARD_SAFETY, ACTIONS_SOURCE, DEMO_LABEL, DEMO_LABEL_TEMPLATE, ONBOARDING_FULL_LINE, SUMMARY_TEMPLATE, VERDICT_WIND_TEMPLATE, WHERE_TEMPLATE, headAffected, headUnaffected, templateRe } from '../content.mjs';
+import { ACTIONS, APPROVED_FIXED, BANNED_PHRASES, BTN_ADVICE, BULLETIN_LINK_TEXT, CARD_SAFETY, ACTIONS_SOURCE, DEMO_LABEL, DEMO_LABEL_TEMPLATE, ONBOARDING_EASY_LINE, ONBOARDING_FULL_LINE, SUMMARY_TEMPLATE, VERDICT_WIND_TEMPLATE, WHERE_TEMPLATE, headAffected, headUnaffected, templateRe } from '../content.mjs';
 
 const FILE = new URL('../../src/i18n/vi.json', import.meta.url);
 const ENGLISH = ['button', 'click', 'settings', 'loading', 'error', 'close', 'next', 'back', 'skip', 'export', 'source', 'done', 'mode', 'theme', 'menu', 'open', 'cancel', 'ok', 'help', 'home', 'info'];
@@ -59,8 +59,8 @@ describe('src/i18n/vi.json', () => {
     }
   });
 
-  it('the SPEC 6.3 btn-advice text and the SPEC 6.6 full-mode line are in vi.json word for word', () => {
-    const missing = [BTN_ADVICE, ONBOARDING_FULL_LINE].filter((s) => !strings.some((v) => v.includes(s)));
+  it('the SPEC 6.3 btn-advice text and the SPEC 6.6 easy-mode and full-mode lines are in vi.json word for word', () => {
+    const missing = [BTN_ADVICE, ONBOARDING_EASY_LINE, ONBOARDING_FULL_LINE].filter((s) => !strings.some((v) => v.includes(s)));
     expect(missing).toEqual([]);
   });
 
@@ -75,7 +75,7 @@ describe('src/i18n/vi.json', () => {
     expect(missing).toEqual([]);
   });
 
-  it('SPEC 2.1: no entry holds "sơ tán", "khẩn cấp", "Bạn nên làm ngay" or "Vẫn nên theo dõi tin bão" outside the quoted 10.3 advice', () => {
+  it('SPEC 2.1: no entry holds "sơ tán", "khẩn cấp", "Bạn nên làm ngay", "Vẫn nên theo dõi tin bão" or "nên làm gì" outside the quoted 10.3 advice', () => {
     // Longest first, so a heading ("Sau bão") is not cut out of an item that starts with it.
     const quoted = [...ACTIONS, ...CARD_SAFETY.body, ACTIONS_SOURCE].sort((a: string, b: string) => b.length - a.length);
     const bad = all
