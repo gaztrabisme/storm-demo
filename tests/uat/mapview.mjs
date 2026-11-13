@@ -1,4 +1,4 @@
-// UAT, SPEC 6.2 + 6.7 + 7: the map pans and zooms, but only within the region (owner, 2026-11-13).
+// UAT, SPEC 6.2 + 6.7 + 7: the map pans and zooms, but only within the region (owner, 2026-11-13); a drag the view cannot follow pulls with resistance and springs back.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/mapview.mjs
 import {
   HAI_PHONG, MAP_RESET, NOW_MS, SAME_PX, T, TRACK, canvasShot, check, context, events, finiteView, finish, focusMap, mapView, open, pageScrollState,
@@ -167,6 +167,182 @@ function viewInFirst(g, p, P) {
   };
 }
 
+// ------------------------------------------------ pull and spring back (SPEC 6.2, owner 2026-11-13)
+/*
+ * A pull: a drag the view cannot follow (any drag at zoom 1, a drag past the region's edge when zoomed). SPEC: the map
+ * still moves with the pointer, less than the pointer and never more than 12 % of the map's shorter side beyond the
+ * allowed view; on release it springs back within 0.3 s (at once under reduced motion). The picture is followed through
+ * a DOM element drawn on the map (storm-marker at zoom 1, place-pin at an edge view), read after two animation frames.
+ */
+const PULL_MAX = 0.12; // SPEC: never more than 12 % of the map's shorter side
+const PULL_PX = 2; // our margin on the 12 % bound (marker box rounding)
+const SPRING_MS = 500; // SPEC 0.3 s + our 200 ms for slow frames under software WebGL (as for btn-map-reset)
+const CUT_MS = 500; // our "at once" under reduced motion (README: a cut is a change within 500 ms)
+const HOME_PX = 1.5; // "back where it was": the element's centre within 1.5 px
+const centreAfterFrames = (page, id) =>
+  page.evaluate(
+    (id) =>
+      new Promise((res) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const r = document.querySelector(`[data-test="${id}"]`)?.getBoundingClientRect();
+            res(r && r.width > 0 ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null);
+          }),
+        ),
+      ),
+    id,
+  );
+/**
+ * From the release of the pointer (pointerup, mouseup or touchend, as the page sees it), poll every 5 ms until [id] is
+ * back within HOME_PX of home and __app.mapView within 0.001 of view. Records the element's distance from home at each poll.
+ */
+const watchRelease = (page, id, home, view) =>
+  page.evaluate(
+    ([id, home, view, homePx]) => {
+      window.__uatPull = null;
+      const types = ['pointerup', 'mouseup', 'touchend'];
+      const on = () => {
+        for (const t of types) window.removeEventListener(t, on, true);
+        const t0 = performance.now();
+        const offs = [];
+        const iv = setInterval(() => {
+          const r = document.querySelector(`[data-test="${id}"]`)?.getBoundingClientRect();
+          const off = r && r.width > 0 ? Math.hypot(r.left + r.width / 2 - home.x, r.top + r.height / 2 - home.y) : Infinity;
+          const v = window.__app.mapView;
+          const dt = performance.now() - t0;
+          offs.push(off);
+          const vOk = !!v && Math.abs(v.zoom - view.zoom) <= 1e-3 && Math.abs(v.lat - view.lat) <= 1e-3 && Math.abs(v.lon - view.lon) <= 1e-3;
+          if (off <= homePx && vOk) {
+            window.__uatPull = { ms: dt, offs };
+            clearInterval(iv);
+          } else if (dt > 3000) {
+            window.__uatPull = { ms: Infinity, offs };
+            clearInterval(iv);
+          }
+        }, 5);
+      };
+      for (const t of types) window.addEventListener(t, on, true);
+    },
+    [id, home, view, HOME_PX],
+  );
+/** A long drag in a direction: from 3 % in from the trailing edge of the globe to 3 % in from the other edge. */
+async function longDrag(page, g, dir) {
+  const cx = g.x + g.width / 2;
+  const cy = g.y + g.height / 2;
+  const [x0, y0] =
+    dir === 'right' ? await mapPoint(page, g.x + g.width * 0.03, cy)
+    : dir === 'left' ? await mapPoint(page, g.x + g.width * 0.97, cy)
+    : dir === 'down' ? await mapPoint(page, cx, g.y + g.height * 0.03)
+    : await mapPoint(page, cx, g.y + g.height * 0.97);
+  const x1 = dir === 'right' ? g.x + g.width * 0.97 : dir === 'left' ? g.x + g.width * 0.03 : x0;
+  const y1 = dir === 'down' ? g.y + g.height * 0.97 : dir === 'up' ? g.y + g.height * 0.03 : y0;
+  return [x0, y0, x1 - x0, y1 - y0];
+}
+/**
+ * One pull, held: pointer down, 20 steps, the element read after each step, a picture taken while still held, then
+ * released. Checks: it moves with the pointer, less than the pointer at every step, never beyond 12 % of the map's
+ * shorter side; after release it is back (element and __app.mapView) within the time allowed; 1 s later mapView and the
+ * picture are the ones from before the drag.
+ */
+async function pullCheck(page, { phone, g, dir, id, view, tag, reduced, viewTol = 1e-4 }) {
+  if (!phone) await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
+  const before = await canvasShot(page);
+  const home = await centreAfterFrames(page, id);
+  if (!home) return check(`${tag} ${id} is on screen before the pull ${dir}`, false);
+  const [x0, y0, dx, dy] = await longDrag(page, g, dir);
+  const len = Math.hypot(dx, dy);
+  const ux = dx / len;
+  const uy = dy / len;
+  const limit = PULL_MAX * Math.min(g.width, g.height);
+  await watchRelease(page, id, home, view);
+  const n = 20;
+  const steps = [];
+  let held = null;
+  let cdp = null;
+  const pt = (x, y) => [{ x, y, id: 0, radiusX: 1, radiusY: 1, force: 1 }];
+  if (phone) {
+    cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(x0, y0) });
+  } else {
+    await page.mouse.move(x0, y0);
+    await page.mouse.down();
+  }
+  for (let i = 1; i <= n; i++) {
+    const x = x0 + (dx * i) / n;
+    const y = y0 + (dy * i) / n;
+    if (phone) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt(x, y) });
+    else await page.mouse.move(x, y);
+    await page.waitForTimeout(16);
+    const p = await centreAfterFrames(page, id);
+    steps.push({ ptr: (len * i) / n, d: p ? Math.hypot(p.x - home.x, p.y - home.y) : Infinity, along: p ? (p.x - home.x) * ux + (p.y - home.y) * uy : 0 });
+  }
+  held = await canvasShot(page);
+  const last = steps.at(-1);
+  if (phone) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+  } else await page.mouse.up();
+  await page.waitForFunction(() => window.__uatPull !== null, null, { timeout: 4000 }).catch(() => {});
+  const back = await page.evaluate(() => window.__uatPull);
+  if (!phone) await page.mouse.move(5, 5);
+  await page.waitForTimeout(1000);
+  const after = await canvasShot(page);
+  const vAfter = await mapView(page);
+  const dMax = Math.max(...steps.map((s) => s.d));
+  const show = steps.filter((_, i) => i % 4 === 3).map((s) => `${s.ptr.toFixed(0)}->${Number.isFinite(s.d) ? s.d.toFixed(1) : 'none'}`).join(' ');
+  check(`${tag} during a held drag ${dir}, ${id} moves with the pointer (more than 2 px in the pointer's direction)`, last.along > 2, `pointer ${len.toFixed(0)} px, ${id} ${last.along.toFixed(1)} px along it`);
+  check(`${tag} during the held drag ${dir}, ${id} moves less than the pointer at every step`, steps.every((s) => s.d < s.ptr), show);
+  check(`${tag} during a ${len.toFixed(0)} px held drag ${dir}, ${id} never moves more than 12 % of the map's shorter side (${limit.toFixed(0)} px, our margin ${PULL_PX} px)`, dMax <= limit + PULL_PX, `largest ${dMax.toFixed(1)} px; ${show}`);
+  const dHeld = held && before ? await pixelDiff(page, before, held) : 0;
+  check(`${tag} during the held drag ${dir}, the globe image changes`, dHeld > SAME_PX, `${(dHeld * 100).toFixed(2)} % of pixels changed`);
+  const ms = back?.ms;
+  if (reduced) {
+    check(`${tag} under reduced motion, after release ${id} and __app.mapView are back at once (within ${CUT_MS} ms)`, typeof ms === 'number' && ms <= CUT_MS, `${ms == null ? 'never' : Math.round(ms)} ms`);
+    const P = last.d;
+    const mid = (back?.offs ?? []).filter((o) => o > 0.15 * P && o < 0.85 * P && o > HOME_PX);
+    check(`${tag} under reduced motion, the spring-back is a jump: ${id} is never seen between the pulled place and home`, P > 2 && mid.length === 0, `pulled ${P.toFixed(1)} px; in between: ${mid.slice(0, 5).map((o) => o.toFixed(1)).join(',')}`);
+  } else {
+    check(`${tag} after release ${id} and __app.mapView spring back within ${SPRING_MS} ms (SPEC 0.3 s, our ${SPRING_MS - 300} ms for software rendering)`, typeof ms === 'number' && ms <= SPRING_MS, `${ms == null ? 'never' : Math.round(ms)} ms`);
+  }
+  check(`${tag} 1 s after the pull ${dir}, __app.mapView is the view from before (within ${viewTol})`, viewDelta(view, vAfter) <= viewTol, `${fmt(view)} -> ${fmt(vAfter)}`);
+  const dAfter = after && before ? await pixelDiff(page, before, after) : 1;
+  check(`${tag} 1 s after the pull ${dir}, the globe image is the one from before (same image)`, dAfter <= SAME_PX, `${(dAfter * 100).toFixed(2)} % of pixels changed`);
+}
+/** map_pull and map_move events logged since index n0 (same session). */
+async function pullLog(page, n0) {
+  const all = await events(page);
+  const got = all.slice(n0);
+  return { pulls: got.filter((e) => e.type === 'map_pull'), moves: got.filter((e) => e.type === 'map_move'), n: all.length };
+}
+const gapsOf = (evs) => evs.map((e, i) => (i ? e.t - evs[i - 1].t : Infinity)).filter((x) => x !== Infinity);
+
+for (const phone of [false, true]) {
+  for (const reducedMotion of ['reduce', 'no-preference']) {
+    const reduced = reducedMotion === 'reduce';
+    const tag = `(${phone ? 375 : 1440} pull ${reduced ? 'reduce' : 'motion'})`;
+    await scenario(`at zoom 1 a drag pulls the map with resistance and it springs back ${tag}`, async () => {
+      const ctx = await context({ phone, reducedMotion });
+      const page = await open(ctx);
+      await skipOnboarding(page);
+      if (!phone) await page.mouse.move(5, 5);
+      await page.waitForTimeout(1500);
+      const g = await globeBox(page);
+      const v0 = await mapView(page);
+      if (!finiteView(v0) || Math.abs(v0.zoom - 1) > 0.01) return check(`${tag} the first view is zoom 1`, false, fmt(v0));
+      const n0 = (await events(page)).length;
+      for (const dir of ['right', 'left', 'down', 'up']) await pullCheck(page, { phone, g, dir, id: 'storm-marker', view: v0, tag, reduced });
+      await page.waitForTimeout(500);
+      const { pulls, moves } = await pullLog(page, n0);
+      check(`${tag} the pulls at zoom 1 log map_pull`, pulls.length >= 1, `${pulls.length}`);
+      check(`${tag} each map_pull has { zoom } = 1 (within 0.02)`, pulls.length > 0 && pulls.every((e) => typeof e.data?.zoom === 'number' && Math.abs(e.data.zoom - 1) <= 0.02), JSON.stringify(pulls.map((e) => e.data)));
+      check(`${tag} pulls that end where they started log no map_move`, moves.length === 0, JSON.stringify(moves.map((e) => e.data)));
+      check(`${tag} map_pull events are at least 2 s apart`, gapsOf(pulls).every((x) => x >= 1950), gapsOf(pulls).join(','));
+      await ctx.close();
+    });
+  }
+}
+
 // ------------------------------------------------ first view, zoom inputs and their limits
 await scenario('first view, zoom by wheel and keys, limits 1-4, no page scroll or zoom (1440x900, reduced motion)', async () => {
   const ctx = await context({ reducedMotion: 'reduce' });
@@ -179,20 +355,6 @@ await scenario('first view, zoom by wheel and keys, limits 1-4, no page scroll o
   check('__app.mapView is { zoom, lat, lon } with finite numbers', finiteView(v0), JSON.stringify(v0));
   check('the first view is zoom 1 (the whole region)', finiteView(v0) && Math.abs(v0.zoom - 1) <= 0.01, fmt(v0));
   check('btn-map-reset is not shown on the first view', !(await visible(page, 'btn-map-reset')));
-
-  // SPEC 6.2: at zoom 1 there is nothing to pan.
-  const a = await canvasShot(page);
-  const m0 = await markerCentre(page);
-  for (const dir of ['right', 'left', 'down', 'up']) await drag(page, false, ...(await dragFor(page, g, dir)));
-  await page.mouse.move(5, 5);
-  await page.waitForTimeout(1000);
-  const b = await canvasShot(page);
-  const m1 = await markerCentre(page);
-  const v1 = await mapView(page);
-  const d = await pixelDiff(page, a, b);
-  check('at zoom 1, mouse drags in four directions leave __app.mapView as it was', viewDelta(v0, v1) <= 1e-4, `${fmt(v0)} -> ${fmt(v1)}`);
-  check('at zoom 1, the drags leave the globe image as it was (same image)', d <= SAME_PX, `${(d * 100).toFixed(2)} % of pixels changed`);
-  check('at zoom 1, the drags leave storm-marker in place (within 1 px)', !!m0 && !!m1 && Math.hypot(m0.x - m1.x, m0.y - m1.y) <= 1, `${JSON.stringify(m0)} -> ${JSON.stringify(m1)}`);
 
   // Scroll wheel: zooms in, stops at 4; back out, stops at 1. The page itself does not scroll.
   const s0 = await pageScrollState(page);
@@ -250,7 +412,7 @@ await scenario('first view, zoom by wheel and keys, limits 1-4, no page scroll o
   await ctx.close();
 });
 
-await scenario('pinch zooms within 1-4; one finger does not pan at zoom 1; the page does not scroll or zoom (375x812 touch, reduced motion)', async () => {
+await scenario('pinch zooms within 1-4; the page does not scroll or zoom (375x812 touch, reduced motion)', async () => {
   const ctx = await context({ phone: true, reducedMotion: 'reduce' });
   const page = await open(ctx);
   await skipOnboarding(page);
@@ -259,14 +421,6 @@ await scenario('pinch zooms within 1-4; one finger does not pan at zoom 1; the p
   const v0 = await mapView(page);
   check('(375) the first view is zoom 1 (the whole region)', finiteView(v0) && Math.abs(v0.zoom - 1) <= 0.01, fmt(v0));
   check('(375) btn-map-reset is not shown on the first view', !(await visible(page, 'btn-map-reset')));
-  const a = await canvasShot(page);
-  for (const dir of ['right', 'left', 'down', 'up']) await drag(page, true, ...(await dragFor(page, g, dir)));
-  await page.waitForTimeout(1000);
-  const b = await canvasShot(page);
-  const v1 = await mapView(page);
-  const d = await pixelDiff(page, a, b);
-  check('(375) at zoom 1, one-finger drags leave __app.mapView as it was', viewDelta(v0, v1) <= 1e-4, `${fmt(v0)} -> ${fmt(v1)}`);
-  check('(375) at zoom 1, one-finger drags leave the globe image as it was', d <= SAME_PX, `${(d * 100).toFixed(2)} % of pixels changed`);
   const s0 = await pageScrollState(page);
   const one = await pinches(page, g, 1, 60, 220);
   check('(375) a pinch (fingers spreading) over the map zooms in', typeof one.at(-1) === 'number' && one.at(-1) > 1.01, one.join(','));
@@ -363,12 +517,15 @@ for (const phone of [false, true]) {
       await page.waitForTimeout(SETTLE);
       const V = await mapView(page);
       check(`${tag} 15 hard drags ${dir} at zoom 4 move the view`, viewDelta(start, V) > 1e-3, `${fmt(start)} -> ${fmt(V)}`);
-      check(`${tag} during the drags ${dir}, __app.mapView stays inside the region (centre within the region's half-size × (1 - 1/zoom), 6 % margin)`, outside.length === 0 && viewInside(V, v0, cal), outside.slice(0, 3).join(' | ') || fmt(V));
-      await drag(page, phone, ...(await dragFor(page, g, dir)));
-      await page.waitForTimeout(SETTLE);
-      const V2 = await mapView(page);
-      check(`${tag} at the edge, one more drag ${dir} does not move the view (panning stops at the edge)`, viewDelta(V, V2) <= 1e-3, `${fmt(V)} -> ${fmt(V2)}`);
+      check(`${tag} after each of the drags ${dir}, __app.mapView is inside the region (centre within the region's half-size × (1 - 1/zoom), 6 % margin)`, outside.length === 0 && viewInside(V, v0, cal), outside.slice(0, 3).join(' | ') || fmt(V));
       if (!finiteView(V)) continue;
+      // One more drag past the edge is a pull: it moves with resistance and springs back to the edge view (SPEC 6.2).
+      await pinAt(page, { lat: V.lat, lon: V.lon });
+      await page.waitForTimeout(2200); // let any map_move from the drags above go out first (one per 2 s)
+      const n0 = (await events(page)).length;
+      await pullCheck(page, { phone, g, dir, id: 'place-pin', view: V, tag, reduced: true, viewTol: 1e-3 });
+      const { pulls, moves } = await pullLog(page, n0);
+      check(`${tag} the pull past the edge ${dir} logs map_pull with { zoom } = 4 (within 0.02) and no map_move`, pulls.length === 1 && Math.abs(pulls[0].data?.zoom - 4) <= 0.02 && moves.length === 0, JSON.stringify({ map_pull: pulls.map((e) => e.data), map_move: moves.length }));
       const pts = probePoints(V, v0, cal);
       const p = [];
       for (const q of pts) p.push(await pinAt(page, q));
@@ -408,6 +565,35 @@ for (const phone of [false, true]) {
     }
     check(`${tag} drags right and left reach both the west and the east edge`, reached.h.size === 2, [...reached.h].join(','));
     check(`${tag} drags down and up reach both the north and the south edge`, reached.v.size === 2, [...reached.v].join(','));
+    await ctx.close();
+  });
+}
+
+for (const phone of [false, true]) {
+  const tag = phone ? '(375 edge pull motion)' : '(1440 edge pull motion)';
+  await scenario(`a drag past each region edge at zoom 4 springs back to the edge view within 0.3 s ${tag}`, async () => {
+    const ctx = await context({ phone });
+    const page = await open(ctx);
+    await skipOnboarding(page);
+    await page.waitForTimeout(1000);
+    const g = await globeBox(page);
+    const z = await zoomIn(page, g, phone, 3.98, 40);
+    check(`${tag} zoomed in to 4`, finiteView(z) && Math.abs(z.zoom - 4) <= 0.02, fmt(z));
+    for (const dir of ['right', 'left', 'down', 'up']) {
+      for (let k = 0; k < 15; k++) await drag(page, phone, ...(await dragFor(page, g, dir)));
+      await page.waitForTimeout(1500);
+      const V = await mapView(page);
+      if (!finiteView(V)) {
+        check(`${tag} __app.mapView is there after the drags ${dir}`, false, JSON.stringify(V));
+        continue;
+      }
+      await pinAt(page, { lat: V.lat, lon: V.lon });
+      await page.waitForTimeout(1500);
+      const n0 = (await events(page)).length;
+      await pullCheck(page, { phone, g, dir, id: 'place-pin', view: V, tag, reduced: false, viewTol: 1e-3 });
+      const { pulls, moves } = await pullLog(page, n0);
+      check(`${tag} the pull past the edge ${dir} logs map_pull with { zoom } = 4 (within 0.02) and no map_move`, pulls.length === 1 && Math.abs(pulls[0].data?.zoom - 4) <= 0.02 && moves.length === 0, JSON.stringify({ map_pull: pulls.map((e) => e.data), map_move: moves.length }));
+    }
     await ctx.close();
   });
 }
@@ -630,12 +816,22 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
 }
 
 // ------------------------------------------------ map_move in the log
-await scenario('map_move is logged with { zoom }, at most one per 2 s (1440x900, reduced motion)', async () => {
+await scenario('map_pull and map_move are logged with { zoom }, at most one per 2 s each (1440x900, reduced motion)', async () => {
   const ctx = await context({ reducedMotion: 'reduce' });
   const page = await open(ctx);
   await skipOnboarding(page);
   await page.waitForTimeout(2500);
   const g = await globeBox(page);
+  // About 5 s of small pulls at zoom 1 (each ends where it started): map_pull, at most one per 2 s, and no map_move.
+  const p0 = (await events(page)).length;
+  const tp = Date.now();
+  for (let k = 0; Date.now() - tp < 5000; k++) await dragCentre(page, false, g, k % 2 ? -40 : 40, 0);
+  await page.waitForTimeout(2500);
+  const pl = await pullLog(page, p0);
+  check('about 5 s of pulls at zoom 1 log map_pull events (2 or more)', pl.pulls.length >= 2, `${pl.pulls.length}`);
+  check('each map_pull at zoom 1 has { zoom } = 1 (within 0.02)', pl.pulls.length > 0 && pl.pulls.every((e) => typeof e.data?.zoom === 'number' && Math.abs(e.data.zoom - 1) <= 0.02), JSON.stringify(pl.pulls.map((e) => e.data)).slice(0, 200));
+  check('map_pull events are at least 2 s apart', pl.pulls.length > 0 && gapsOf(pl.pulls).every((x) => x >= 1950), gapsOf(pl.pulls).join(','));
+  check('pulls at zoom 1 log no map_move', pl.moves.length === 0, `${pl.moves.length}`);
   const moves = async () => (await events(page)).filter((e) => e.type === 'map_move');
   const n0 = (await moves()).length;
   await zoomIn(page, g, false, 2);
