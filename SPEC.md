@@ -99,7 +99,13 @@ Each listed element carries the `data-test` value given in brackets.
 - The demo label from section 4 [`demo-label`].
 - **Track uncertainty circles:** three circles centred on the track position at now + 24 h, + 48 h and + 72 h. Their radii are 86, 148 and 217 km: the 2023 mean radii of JMA's 70% probability circles (SOURCES.md, `jma2023_prob_circle`). A small legend [`cone-legend`] reads `Vòng tròn: nơi tâm bão có thể đi qua`; the method (70%, JMA 2023 mean radii) is in the `Vùng gió mạnh là gì?` card (10.2). `window.__app.cone` is `[{ hours, lat, lon, radiusKm }]` for the three circles.
 - The strong-wind area at the selected time is drawn as a filled shape around the marker, using the four quadrant radii.
-- **The map view is fixed in both modes** (owner, 2026-11-12): no drag, no scroll or pinch zoom, no camera moves on the map. The view frames the whole track and all of Vietnam for the current layout (phone and desktop may differ). Only the satellite trip (6.7) moves the camera.
+- **The map can move, but only within the region** (owner, 2026-11-13; replaces the fixed view of 2026-11-12). Both modes. The region is the box that frames the whole track and all of Vietnam for the current layout (phone and desktop may differ); the first view shows exactly that box (zoom 1).
+  - Pan: mouse drag or one-finger drag. Zoom: scroll wheel, pinch, or the `+`/`-` keys; arrow keys pan. Keys work when the map has focus.
+  - Zoom runs from 1 (the whole region) to 4. The view never shows anything outside the region box: panning stops at its edges, and at zoom 1 there is nothing to pan.
+  - Everything drawn on the map (track, labels, circles, wind area, place pin, notes, key position) stays attached to its place while the view moves.
+  - A button `Xem toàn vùng` [`btn-map-reset`] shows only while the view is not the whole region; it returns to zoom 1 (a cut under reduced motion, otherwise at most 0.4 s).
+  - Nothing moves the map by itself: no camera move after a verdict, a chip or a slider change. The satellite trip (6.7) starts from the current view and returns to it.
+  - `window.__app.mapView` is `{ zoom, lat, lon }` (the view centre). Moving logs `map_move` with `{ zoom }`, at most one per 2 s.
 - **Full mode:** a time slider [`time-slider`] (a native `input type=range`) runs from the first point to the last in 3-hour steps, starts at now, and moves the storm marker. Beside it, the selected time [`time-readout`].
 - **Easy mode:** no slider. The marker shows the storm at now.
 
@@ -109,7 +115,7 @@ Each listed element carries the `data-test` value given in brackets.
   1. It asks for geolocation.
   2. **Granted:** use the coordinates, label the place `Vị trí của bạn` at the start of a sentence and on the map pin, and `vị trí của bạn` (lower case) inside a sentence.
   3. **Denied, failed, or no response in 8 s:** show the province picker [`province-picker`] (a native `select` of the 34 provinces) with the line `Không lấy được vị trí. Chọn tỉnh của bạn:`.
-  4. Then (no camera move: the view is fixed) a pin [`place-pin`] marks the place, and the verdict card opens.
+  4. Then (no camera move) a pin [`place-pin`] marks the place, and the verdict card opens.
 - **Verdict card** [`verdict`], with attribute `data-affected="true|false"`:
   - Affected: heading `Theo bản mô phỏng: {place} nằm trong vùng gió từ cấp 8 trở lên` [`verdict-head`]; line `Từ khoảng {firstInside} đến {lastInside}` [`verdict-when`]; `Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)` [`verdict-wind`] from `peakWindKt`.
   - Not affected: heading `Theo bản mô phỏng: {place} nằm ngoài vùng gió từ cấp 8 trở lên` [`verdict-head`]; line `Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}` [`verdict-when`]; line `Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.` [`verdict-note`].
@@ -211,6 +217,8 @@ Finishing or skipping saves the settings and never shows the onboarding again.
   - `chip` with `{ id }`
   - `setting` with `{ name, value }`
   - `slider` (throttled to one per 2 s)
+  - `map_move` with `{ zoom }` (throttled to one per 2 s)
+  - `map_reset`
   - `satellite_open`, `satellite_close`
   - `learn_open` with `{ card }`
 - `btn-export` downloads `stormdemo-log-{session}.json` with all stored events, and a `Xóa dữ liệu` button [`btn-clear-log`] clears them.
@@ -225,6 +233,7 @@ Finishing or skipping saves the settings and never shows the onboarding again.
 - `now` (ISO string)
 - `cone` (section 6.2)
 - `satellite` (section 6.7)
+- `mapView` (section 6.2)
 - `palette` (section 2.1)
 - `events()` (array)
 - `ready` (a promise that resolves when the globe has drawn its first frame)
