@@ -18,8 +18,28 @@ const GEO_ALT_KM = 35786;
 const SAT_LAT = 0;
 const SAT_LON = 128.2;
 
-/** Satellite flight duration (ms), out and back. SPEC 6.7 sets 0.8-1.2 s; the map itself never moves (SPEC 6.2). */
+/** Satellite flight duration (ms), out and back. SPEC 6.7 sets 0.8-1.2 s. */
 const FLY_SAT_MS = 820;
+
+/**
+ * The movable map (SPEC 6.2): the region is the zoom-1 view, and a zoomed view shows a part of that same picture,
+ * so nothing outside the region can come into view. Zoom 1 to 4; a wheel notch of 100 px multiplies it by
+ * WHEEL_K ** 100, a key press by KEY_ZOOM; an arrow key pans by KEY_PAN of the visible width or height.
+ * btn-map-reset returns to zoom 1 in RESET_MS (a cut under reduced motion).
+ */
+const MAP_ZOOM_MAX = 4;
+const WHEEL_K = 0.002;
+const KEY_ZOOM = 1.5;
+const KEY_PAN = 0.15;
+const RESET_MS = 280;
+/** The share of the satellite trip over which a zoomed view widens back to the whole region on the way out. */
+const TRIP_UNZOOM = 0.3;
+/**
+ * Field of view (deg) on the map and in the close-up. The map's is narrow, so the camera stands far off and the
+ * region reads nearly as a flat chart: a degree near its edges is drawn about as long as one at its centre.
+ */
+const MAP_FOV = 16;
+const SAT_FOV = 40;
 
 /**
  * The satellite close-up (SPEC 6.7): the camera orbits the model. yaw turns about the model's north axis (0 is
@@ -93,7 +113,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   container.prepend(canvas);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
+  const camera = new THREE.PerspectiveCamera(MAP_FOV, 1, 0.01, 100);
   scene.add(new THREE.AmbientLight(0xffffff, 1.4));
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);
   vec(25, 150, 10, sun.position);
@@ -173,11 +193,11 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const stormWorld = new THREE.Vector3();
   function updateStorm(): void {
     storm = trackAt(track, timeMs);
-    if (storm) vec(storm.lat, storm.lon, 1.003, stormWorld);
+    if (storm) vec(storm.lat, storm.lon, 1, stormWorld);
   }
 
   // Province names (full mode).
-  const provWorld = init.provinces.map((p) => vec(p.lat, p.lon, 1.002));
+  const provWorld = init.provinces.map((p) => vec(p.lat, p.lon, 1));
 
   const labelLayer = document.createElement('div');
   labelLayer.className = 'globe__labels';
@@ -437,6 +457,18 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   pinName.setAttribute('aria-hidden', 'true');
   pinEl.append(pinName);
   let pinNameW = -1;
+  // btn-map-reset (SPEC 6.2): shown while the map is zoomed in; placed in a corner clear of the demo label, the key,
+  // the storm marker and the pin.
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'btn globe__reset';
+  resetBtn.dataset.test = 'btn-map-reset';
+  resetBtn.textContent = init.labels.reset;
+  resetBtn.hidden = true;
+  container.append(resetBtn);
+  const resetPos = new Float32Array(2).fill(NaN);
+  let resetW = 0;
+  let resetH = 0;
   // The close-up's HUD and [satellite], the view that takes focus for the arrow keys.
   const hud = createHud(container, init.labels.hud, init.labels.satellite);
 
@@ -477,15 +509,15 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
 
   // ---------------------------------------------------------------- Camera
   const tanHalfMin = () => {
-    const v = Math.tan((camera.fov / 2) * RAD);
+    const v = Math.tan((MAP_FOV / 2) * RAD);
     return Math.min(v, v * camera.aspect);
   };
   /** Distance at which a cap of angular radius alpha (deg) fits the view. */
   const fitDist = (alphaDeg: number) => Math.max(1.3, Math.cos(alphaDeg * RAD) + Math.sin(alphaDeg * RAD) / tanHalfMin());
   /**
-   * The fixed map view (SPEC 6.2): the whole track and all of Vietnam, fitted to the current layout from the data.
-   * It is worked out again only when the layout changes (a resize, or the key's height on a desktop); a check, a
-   * mode change or the time slider never move it.
+   * The region (SPEC 6.2): the whole track and all of Vietnam, fitted to the current layout from the data; the map
+   * at zoom 1. It is worked out again only when the layout changes (a resize, or the key's height on a desktop); a
+   * check, a mode change or the time slider never move it.
    */
   const homeCam = (): Cam => trackCam();
 
@@ -519,8 +551,9 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       lon1 = Math.max(lon1, p.lon);
     }
     const c: Cam = { lat: (lat0 + lat1) / 2, lon: (lon0 + lon1) / 2, dist: fitDist(Math.max(lat1 - lat0, lon1 - lon0) / 2 + 2) };
-    fitCamera.fov = camera.fov;
+    fitCamera.fov = MAP_FOV;
     fitCamera.aspect = camera.aspect;
+    fitCamera.near = 0.01;
     fitCamera.updateProjectionMatrix();
     const [bx0, by0, bx1, by1] = box;
     for (let it = 0; it < 12; it++) {
@@ -548,7 +581,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
         c.lat = Math.max(-80, Math.min(80, to.lat));
         c.lon = to.lon;
       }
-      c.dist = Math.max(1.05, Math.min(6, 1 + (c.dist - 1) * k));
+      c.dist = Math.max(1.05, Math.min(40, 1 + (c.dist - 1) * k));
       if (Math.abs(k - 1) < 0.005 && Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) break;
     }
     return c;
@@ -571,10 +604,113 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     return fitPoints(pts, box);
   }
 
-  /** The fixed map view for the current layout; the satellite trip returns to it. */
+  /** The region's camera for the current layout. */
   let home: Cam = homeCam();
-  /** The layout changed while the satellite view was open: the map view is worked out again on the way back. */
+  /** The canvas size home was fitted for: the satellite trip returns to the same home unless the size changed. */
+  let homeW = width;
+  let homeH = height;
+  /** The layout changed while the satellite view was open: the region is worked out again on the way back. */
   let homeStale = false;
+
+  // ---------------------------------------------------------------- The movable map (SPEC 6.2)
+  /**
+   * The view inside the region: zoom (1-4) and the centre of the visible part as a share of the zoom-1 picture's
+   * width and height. The visible part is width/zoom by height/zoom and always lies inside the picture.
+   */
+  const view = { zoom: 1, cx: 0.5, cy: 0.5 };
+  const reset = { on: false, t0: 0, z0: 1, cx0: 0.5, cy0: 0.5 };
+  function clampView(): void {
+    view.zoom = Math.min(MAP_ZOOM_MAX, Math.max(1, view.zoom));
+    const h = 0.5 / view.zoom;
+    view.cx = Math.min(1 - h, Math.max(h, view.cx));
+    view.cy = Math.min(1 - h, Math.max(h, view.cy));
+  }
+  /** Logs and redraws after an input moved the view; nothing when it did not move. */
+  function viewMoved(z: number, cx: number, cy: number): void {
+    if (z === view.zoom && cx === view.cx && cy === view.cy) return;
+    init.onMapMove?.(view.zoom);
+    markDirty();
+  }
+  /** Zoom to z keeping the map point under screen point (px, py) where it is (as far as the region allows). */
+  function zoomAt(z: number, px: number, py: number): void {
+    const z0 = view.zoom;
+    const cx0 = view.cx;
+    const cy0 = view.cy;
+    reset.on = false;
+    const fx = px / width - 0.5;
+    const fy = py / height - 0.5;
+    const ux = view.cx + fx / z0;
+    const uy = view.cy + fy / z0;
+    view.zoom = Math.min(MAP_ZOOM_MAX, Math.max(1, z));
+    view.cx = ux - fx / view.zoom;
+    view.cy = uy - fy / view.zoom;
+    clampView();
+    viewMoved(z0, cx0, cy0);
+  }
+  /** Moves the map by (dx, dy) screen px: the picture follows the pointer. */
+  function panBy(dx: number, dy: number): void {
+    const z0 = view.zoom;
+    const cx0 = view.cx;
+    const cy0 = view.cy;
+    reset.on = false;
+    view.cx -= dx / (width * view.zoom);
+    view.cy -= dy / (height * view.zoom);
+    clampView();
+    viewMoved(z0, cx0, cy0);
+  }
+  /** Sets the camera's view offset for this frame: the zoomed part of the region, widening to it on the satellite trip. */
+  let offKey0 = 1;
+  let offKey1 = 0.5;
+  let offKey2 = 0.5;
+  let offW = 0;
+  let offH = 0;
+  function applyView(): void {
+    let z = view.zoom;
+    let cx = view.cx;
+    let cy = view.cy;
+    if (trip > 0) {
+      const s = smooth(Math.min(1, trip / TRIP_UNZOOM));
+      z = 1 + (z - 1) * (1 - s);
+      cx += (0.5 - cx) * s;
+      cy += (0.5 - cy) * s;
+    }
+    if (z === offKey0 && cx === offKey1 && cy === offKey2 && width === offW && height === offH) return;
+    offKey0 = z;
+    offKey1 = cx;
+    offKey2 = cy;
+    offW = width;
+    offH = height;
+    if (z === 1 && cx === 0.5 && cy === 0.5) camera.clearViewOffset();
+    else camera.setViewOffset(width, height, (cx - 0.5 / z) * width, (cy - 0.5 / z) * height, width / z, height / z);
+  }
+  /** __app.mapView: the zoom and the surface point at the view's centre, from the region's camera (not the frame's). */
+  const viewCamera = new THREE.PerspectiveCamera(MAP_FOV, 1, 0.01, 100);
+  const vd = new THREE.Vector3();
+  let mvKey = '';
+  let mv = { zoom: 1, lat: NaN, lon: NaN };
+  function mapView(): { zoom: number; lat: number; lon: number } {
+    const key = `${view.zoom}|${view.cx}|${view.cy}|${home.lat}|${home.lon}|${home.dist}|${width}|${height}`;
+    if (key !== mvKey) {
+      mvKey = key;
+      viewCamera.fov = MAP_FOV;
+      viewCamera.aspect = width / height;
+      if (view.zoom === 1) viewCamera.clearViewOffset();
+      else viewCamera.setViewOffset(width, height, (view.cx - 0.5 / view.zoom) * width, (view.cy - 0.5 / view.zoom) * height, width / view.zoom, height / view.zoom);
+      viewCamera.updateProjectionMatrix();
+      vec(home.lat, home.lon, home.dist, viewCamera.position);
+      viewCamera.lookAt(0, 0, 0);
+      viewCamera.updateMatrixWorld();
+      vd.set(0, 0, 0.5).unproject(viewCamera).sub(viewCamera.position).normalize();
+      const b = viewCamera.position.dot(vd);
+      const disc = b * b - (viewCamera.position.lengthSq() - 1);
+      if (disc < 0) mv = { zoom: view.zoom, lat: NaN, lon: NaN };
+      else {
+        vd.multiplyScalar(-b - Math.sqrt(disc)).add(viewCamera.position);
+        mv = { zoom: view.zoom, lat: Math.asin(Math.max(-1, Math.min(1, vd.y))) / RAD, lon: Math.atan2(-vd.z, vd.x) / RAD };
+      }
+    }
+    return { zoom: mv.zoom, lat: mv.lat, lon: mv.lon };
+  }
 
   // ---------------------------------------------------------------- Satellite close-up
   const close = { yaw: YAW0, pitch: PITCH0, zoom: 1, d0: 0.04, held: false, idleUntil: 0 };
@@ -586,7 +722,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   }
 
   // Trip between the map and the close-up, after AstroSphere src/scene/flight/flightView.ts (step): one number
-  // `trip` runs from 0 (the fixed map view) to 1 (the close-up), with smoothstep easing. Along it the point looked
+  // `trip` runs from 0 (the map view) to 1 (the close-up), with smoothstep easing. Along it the point looked
   // at moves from the Earth's centre to the model (over the first 60 %), the camera's direction from that point is
   // slerped, and its distance changes geometrically, so the model grows steadily as the camera closes in.
   let trip = 0;
@@ -642,6 +778,11 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     }
     mLook.lookAt(camera.position, fTarget, UP);
     camera.quaternion.setFromRotationMatrix(mLook);
+    const fov = k >= 1 ? SAT_FOV : k <= 0 ? MAP_FOV : MAP_FOV + (SAT_FOV - MAP_FOV) * smooth(k);
+    if (fov !== camera.fov) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
   }
 
   /** Near plane close to the model in the close-up, the map's own on the map. */
@@ -694,6 +835,21 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
         done?.();
       } else moving = true;
     }
+    if (reset.on) {
+      const t = init.reducedMotion() ? 1 : Math.min(1, Math.max(0, (now - reset.t0) / RESET_MS));
+      const s = smooth(t);
+      view.zoom = reset.z0 + (1 - reset.z0) * s;
+      view.cx = reset.cx0 + (0.5 - reset.cx0) * s;
+      view.cy = reset.cy0 + (0.5 - reset.cy0) * s;
+      if (t >= 1) {
+        reset.on = false;
+        view.zoom = 1;
+        view.cx = view.cy = 0.5;
+      } else {
+        clampView();
+        moving = true;
+      }
+    }
     autoOnly = false;
     if (!flight.on && satView && trip === 1 && !close.held && !init.reducedMotion()) {
       if (now >= close.idleUntil) close.yaw += AUTO_TURN * smooth(Math.min(1, (now - close.idleUntil) / AUTO_EASE_MS)) * dt;
@@ -703,6 +859,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     setDim();
     pose(trip);
     setNear();
+    applyView();
     if (orbitDots.visible) layoutOrbit();
     return moving;
   }
@@ -712,7 +869,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   function fitCloseDistance(): void {
     let d = close.d0;
     closeDir(YAW0, PITCH0, fA);
-    fitCamera.fov = camera.fov;
+    fitCamera.fov = SAT_FOV;
     fitCamera.aspect = camera.aspect;
     fitCamera.near = 0.0005;
     fitCamera.updateProjectionMatrix();
@@ -763,8 +920,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     if (!front) return false;
     proj.copy(world).project(camera);
     if (proj.z >= 1) return false;
-    proj.x = Math.round((proj.x * 0.5 + 0.5) * width * 2) / 2;
-    proj.y = Math.round((-proj.y * 0.5 + 0.5) * height * 2) / 2;
+    proj.x = (proj.x * 0.5 + 0.5) * width;
+    proj.y = (-proj.y * 0.5 + 0.5) * height;
     return proj.x >= 0 && proj.x <= width && proj.y >= 0 && proj.y <= height;
   }
 
@@ -783,7 +940,79 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     camera.getWorldDirection(camDir);
     placeOverlay(stormEl, storm && !satView ? stormWorld : null, true, last.storm);
     placeOverlay(pinEl, place && !satView ? pinWorld : null, true, last.pin);
+    updateReset();
     updateClose();
+  }
+
+  /**
+   * Shows btn-map-reset while zoomed in on the map, in the first corner spot that covers nothing it must not: the
+   * demo label and the key (their boxes are read when the button shows and on a resize; they do not move with the
+   * map), the storm marker and the pin. Kept free of allocation, as it runs on every frame of a pan.
+   */
+  const RESET_BOXES = 8;
+  const resetBoxes = new Float32Array(RESET_BOXES * 4);
+  let nCover = -1;
+  let nBoxes = 0;
+  const pushBox = (x0: number, y0: number, x1: number, y1: number) => {
+    if (nBoxes >= RESET_BOXES) return;
+    const o = nBoxes * 4;
+    resetBoxes[o] = x0;
+    resetBoxes[o + 1] = y0;
+    resetBoxes[o + 2] = x1;
+    resetBoxes[o + 3] = y1;
+    nBoxes++;
+  };
+  const spotFree = (x: number, y: number): boolean => {
+    if (y < 12 || y + resetH > height - 12) return false;
+    for (let j = 0; j < nBoxes; j++) {
+      const o = j * 4;
+      if (x - 4 < resetBoxes[o + 2] && x + resetW + 4 > resetBoxes[o] && y - 4 < resetBoxes[o + 3] && y + resetH + 4 > resetBoxes[o + 1]) return false;
+    }
+    return true;
+  };
+  function updateReset(): void {
+    const on = view.zoom > 1 && !satView && trip === 0;
+    if (resetBtn.hidden === on) {
+      if (!on && document.activeElement === resetBtn) container.focus({ preventScroll: true });
+      resetBtn.hidden = !on;
+      container.classList.toggle('globe--zoomed', on);
+      nCover = -1;
+      if (on) {
+        resetW = resetBtn.offsetWidth;
+        resetH = resetBtn.offsetHeight;
+      }
+    }
+    if (!on) return;
+    if (nCover < 0) {
+      nBoxes = 0;
+      for (const b of coverBoxes()) pushBox(b[0], b[1], b[2], b[3]);
+      nCover = nBoxes;
+    }
+    nBoxes = nCover;
+    if (!stormEl.hidden) pushBox(last.storm[0] - 16, last.storm[1] - 16, last.storm[0] + 16, last.storm[1] + 16);
+    if (!pinEl.hidden) pushBox(last.pin[0] - 12, last.pin[1] - 12, last.pin[0] + 12, last.pin[1] + 12);
+    const m = 12;
+    let bx = width - resetW - m;
+    let by = m;
+    // Right side first, then left; at the top, below each box, above each box, at the bottom.
+    search: for (let side = 0; side < 2; side++) {
+      const x = side === 0 ? width - resetW - m : m;
+      for (let k = -1; k <= nBoxes * 2; k++) {
+        const y = k < 0 ? m : k === nBoxes * 2 ? height - resetH - m : k % 2 === 0 ? resetBoxes[(k >> 1) * 4 + 3] + 8 : resetBoxes[(k >> 1) * 4 + 1] - resetH - 8;
+        if (spotFree(x, y)) {
+          bx = x;
+          by = y;
+          break search;
+        }
+      }
+    }
+    bx = Math.round(bx);
+    by = Math.round(by);
+    if (bx !== resetPos[0] || by !== resetPos[1]) {
+      resetPos[0] = bx;
+      resetPos[1] = by;
+      resetBtn.style.transform = `translate(${bx}px, ${by}px)`;
+    }
   }
 
   // The close-up's overlays: [satellite-model] over the model's box on screen, and the HUD.
@@ -882,6 +1111,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     const blocked = coverBoxes([...(init.covers?.() ?? []), ...(init.avoid?.() ?? [])]);
     if (!stormEl.hidden) blocked.push([last.storm[0] - 13, last.storm[1] - 13, last.storm[0] + 13, last.storm[1] + 13]);
     if (!pinEl.hidden) blocked.push([last.pin[0] - 9, last.pin[1] - 9, last.pin[0] + 9, last.pin[1] + 9]);
+    if (!resetBtn.hidden) blocked.push([resetPos[0] - 4, resetPos[1] - 4, resetPos[0] + resetW + 4, resetPos[1] + resetH + 4]);
     chart.update({
       width,
       height,
@@ -889,7 +1119,9 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       returning: flight.on && !satView,
       full: mode === 'full',
       settled,
-      dist: camera.position.length(),
+      // As far as a 40 degree camera would stand to show the same span (the graticule step follows it).
+      dist: 1 + ((camera.position.length() - 1) * Math.tan((camera.fov / 2) * RAD)) / Math.tan(20 * RAD),
+      zoom: trip > 0 ? 1 : view.zoom,
       timeMs,
       storm,
       place,
@@ -1017,13 +1249,15 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   applyGround();
   // Compile every material now, the satellite model's included, so the first flight out does not stall on it.
   renderer.compile(scene, camera);
-  /** Works the fixed map view out again for a new layout; while the satellite view is open, only marks it stale. */
+  /** Works the region out again for a new layout; while the satellite view is open, only marks it stale. */
   function reframe(): void {
     if (satView) {
       homeStale = true;
       return;
     }
     home = homeCam();
+    homeW = width;
+    homeH = height;
     markDirty();
   }
 
@@ -1037,6 +1271,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     fitCloseDistance();
     labelsMeasured = false;
     pinNameW = -1;
+    nCover = -1;
     markDirty();
   }
   const ro = new ResizeObserver(resize);
@@ -1046,18 +1281,72 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   let frameH = -1;
   const frameRo = new ResizeObserver(() => {
     const h = init.frameAround ? Math.round(init.frameAround.getBoundingClientRect().height) : 0;
-    if (Math.abs(h - frameH) < 3) return;
+    // A hidden key (the satellite view, or the key folded into the phone panel) leaves the framing as it is.
+    if (h === 0 || satView || Math.abs(h - frameH) < 3) return;
     frameH = h;
     reframe();
   });
   if (init.frameAround) frameRo.observe(init.frameAround);
 
-  // No input on the map (SPEC 6.2): no drag, no wheel or pinch zoom. The globe's touch-action is none (styles.css),
-  // so a pinch over it does not zoom the page either.
+  // The map (SPEC 6.2): a drag (mouse or one finger) pans, scroll or a pinch zooms about the pointer, and while the
+  // map has focus + and - zoom and the arrow keys pan. The globe's touch-action is none (styles.css) and every wheel
+  // over it is taken, so the page itself never scrolls or zooms over the map.
   // In the close-up (SPEC 6.7): a drag (mouse or one finger) orbits the camera round the model, scroll or a pinch
   // zooms between 0.6x and 2x of the arrival distance, and the arrow keys turn it while [satellite] has focus.
   // Any press holds the automatic turn; it starts again AUTO_PAUSE_MS after the last input.
   const closeLive = () => satView && !flight.on && trip === 1;
+  const mapLive = () => !satView && !flight.on && trip === 0;
+  /** Which view the pointers down now drive. */
+  let ptrMap = false;
+  let gLeft = 0;
+  let gTop = 0;
+  let mapMidX = 0;
+  let mapMidY = 0;
+  let mapD = 0;
+  /** Elements over the map that keep their own pointer use (the reset button, the key, the demo label). */
+  const ownPointer = (t: EventTarget | null): boolean => t instanceof Element && t !== container && t !== canvas && !!t.closest('button, a, input, select, .key, .globe__demo, .satview');
+  function mapPointerDown(e: PointerEvent): void {
+    if (ownPointer(e.target)) return;
+    if (nPtr() === 0) ptrMap = true;
+    if (!ptrMap) return;
+    const slot = ptrId[0] < 0 ? 0 : ptrId[1] < 0 ? 1 : -1;
+    if (slot < 0) return;
+    if (nPtr() === 0) {
+      const r = container.getBoundingClientRect();
+      gLeft = r.left;
+      gTop = r.top;
+    }
+    ptrId[slot] = e.pointerId;
+    ptrX[slot] = e.clientX;
+    ptrY[slot] = e.clientY;
+    try {
+      container.setPointerCapture(e.pointerId);
+    } catch {
+      /* the pointer is already gone */
+    }
+    if (nPtr() === 2) {
+      mapD = pinchDist();
+      mapMidX = (ptrX[0] + ptrX[1]) / 2;
+      mapMidY = (ptrY[0] + ptrY[1]) / 2;
+    }
+    if (e.pointerType === 'mouse') e.preventDefault();
+  }
+  function mapPointerMove(e: PointerEvent, slot: number): void {
+    const dx = e.clientX - ptrX[slot];
+    const dy = e.clientY - ptrY[slot];
+    ptrX[slot] = e.clientX;
+    ptrY[slot] = e.clientY;
+    if (nPtr() === 2) {
+      const d = pinchDist();
+      const mx = (ptrX[0] + ptrX[1]) / 2;
+      const my = (ptrY[0] + ptrY[1]) / 2;
+      if (mapD > 0 && d > 0) zoomAt(view.zoom * (d / mapD), mx - gLeft, my - gTop);
+      panBy(mx - mapMidX, my - mapMidY);
+      mapD = d;
+      mapMidX = mx;
+      mapMidY = my;
+    } else panBy(dx, dy);
+  }
   const ptrId = new Int32Array(2).fill(-1);
   const ptrX = new Float32Array(2);
   const ptrY = new Float32Array(2);
@@ -1077,7 +1366,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     markDirty();
   };
   function onPointerDown(e: PointerEvent): void {
+    if (mapLive()) {
+      mapPointerDown(e);
+      return;
+    }
     if (!closeLive()) return;
+    if (nPtr() === 0) ptrMap = false;
+    if (ptrMap) return;
     const slot = ptrId[0] < 0 ? 0 : ptrId[1] < 0 ? 1 : -1;
     if (slot < 0) return;
     ptrId[slot] = e.pointerId;
@@ -1098,7 +1393,12 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   }
   function onPointerMove(e: PointerEvent): void {
     const slot = ptrId[0] === e.pointerId ? 0 : ptrId[1] === e.pointerId ? 1 : -1;
-    if (slot < 0 || !closeLive()) return;
+    if (slot < 0) return;
+    if (ptrMap) {
+      if (mapLive()) mapPointerMove(e, slot);
+      return;
+    }
+    if (!closeLive()) return;
     const dx = e.clientX - ptrX[slot];
     const dy = e.clientY - ptrY[slot];
     ptrX[slot] = e.clientX;
@@ -1120,13 +1420,25 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       ptrId[1] = -1;
     }
     pinchD = 0;
+    if (ptrMap) {
+      // One finger left of a pinch: it pans on from where it is.
+      mapD = 0;
+      if (nPtr() === 0) ptrMap = false;
+      return;
+    }
     if (nPtr() === 0) close.held = false;
     touched();
   }
   function onWheel(e: WheelEvent): void {
-    if (!closeLive()) return;
+    // Every wheel over the globe is taken (Ctrl + wheel is a trackpad pinch): the page never scrolls or zooms here.
     e.preventDefault();
     const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    if (mapLive()) {
+      const r = container.getBoundingClientRect();
+      zoomAt(view.zoom * Math.exp(-e.deltaY * k * WHEEL_K), e.clientX - r.left, e.clientY - r.top);
+      return;
+    }
+    if (!closeLive()) return;
     setZoom(close.zoom * Math.exp(e.deltaY * k * 0.0015));
     touched();
   }
@@ -1140,6 +1452,32 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     e.preventDefault();
     touched();
   }
+  function onMapKey(e: KeyboardEvent): void {
+    if (e.target !== container || !mapLive() || e.altKey || e.ctrlKey || e.metaKey) return;
+    const k = e.key;
+    if (k === '+' || k === '=' || k === 'Add') zoomAt(view.zoom * KEY_ZOOM, width / 2, height / 2);
+    else if (k === '-' || k === '_' || k === 'Subtract') zoomAt(view.zoom / KEY_ZOOM, width / 2, height / 2);
+    else if (k === 'ArrowLeft') panBy((KEY_PAN * width) / 1, 0);
+    else if (k === 'ArrowRight') panBy((-KEY_PAN * width) / 1, 0);
+    else if (k === 'ArrowUp') panBy(0, KEY_PAN * height);
+    else if (k === 'ArrowDown') panBy(0, -KEY_PAN * height);
+    else return;
+    e.preventDefault();
+  }
+  function onReset(): void {
+    if (view.zoom === 1 && view.cx === 0.5 && view.cy === 0.5) return;
+    init.onMapReset?.();
+    reset.on = true;
+    reset.t0 = performance.now();
+    reset.z0 = view.zoom;
+    reset.cx0 = view.cx;
+    reset.cy0 = view.cy;
+    markDirty();
+  }
+  // The globe takes focus for the map keys (SPEC 6.2); in the satellite view [satellite] takes it instead.
+  container.tabIndex = 0;
+  container.addEventListener('keydown', onMapKey);
+  resetBtn.addEventListener('click', onReset);
   container.addEventListener('pointerdown', onPointerDown);
   container.addEventListener('pointermove', onPointerMove);
   container.addEventListener('pointerup', onPointerUp);
@@ -1169,7 +1507,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     },
     setPlace(p) {
       place = p ? { lat: p.lat, lon: p.lon, label: p.label } : null;
-      if (p) vec(p.lat, p.lon, 1.003, pinWorld);
+      if (p) vec(p.lat, p.lon, 1, pinWorld);
       pinName.textContent = p?.label ?? '';
       // The pin's name for screen readers and the tests: the place's label ("Vị trí của bạn" for the own location).
       pinEl.setAttribute('aria-label', p?.label || init.labels.pin);
@@ -1190,17 +1528,27 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       close.held = false;
       ptrId.fill(-1);
       close.idleUntil = 0;
+      reset.on = false;
+      container.tabIndex = -1;
       fly(1, FLY_SAT_MS);
     },
     satellite() {
       return { yaw: close.yaw, pitch: close.pitch, zoom: close.zoom };
     },
+    mapView,
     back() {
       if (!satView) return;
       satView = false;
+      container.tabIndex = 0;
+      // The trip returns to the view it left from (SPEC 6.2, 6.7): the region is fitted again only when the canvas
+      // size changed while the satellite view was open.
       if (homeStale) {
         homeStale = false;
-        home = homeCam();
+        if (width !== homeW || height !== homeH) {
+          home = homeCam();
+          homeW = width;
+          homeH = height;
+        }
       }
       fly(0, FLY_SAT_MS);
     },
@@ -1213,6 +1561,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       container.removeEventListener('pointerup', onPointerUp);
       container.removeEventListener('pointercancel', onPointerUp);
       container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('keydown', onMapKey);
+      resetBtn.remove();
       hud.dispose();
       loop.dispose();
       renderer.dispose();

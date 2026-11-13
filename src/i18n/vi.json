@@ -234,6 +234,7 @@
     "past": "Đã đi qua",
     "forecast": "Dự báo",
     "level": "cấp {n}",
-    "hours": "{h} giờ"
+    "hours": "{h} giờ",
+    "reset": "Xem toàn vùng"
   }
 }

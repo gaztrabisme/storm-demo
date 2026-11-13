@@ -3,7 +3,7 @@ import './styles.css';
 import { assistant } from './assistant';
 import { CONE, createActions, createStore, NOW_MS, PROVINCES, reducedMotion, TRACK } from './app';
 import { t } from './i18n';
-import { events, logEvent } from './log';
+import { events, logEvent, throttle } from './log';
 import { loadGlobe, type GlobeController } from './scene';
 import { modeOf, themeOf } from './state';
 import { vnTime } from './storm/format';
@@ -137,14 +137,17 @@ loadGlobe({
   cone: CONE,
   provinces: PROVINCES,
   reducedMotion,
-  labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), hud: hudStrings() },
+  labels: { storm: t('marker.storm'), pin: t('marker.pin'), satellite: t('marker.satellite'), reset: t('map.reset'), hud: hudStrings() },
   // On a desktop the key counts as a cover on the map, so the chart is framed above it. On a phone it is in the
   // panel, outside the map (and once the panel scrolls, its box can lie beside the map's rows).
   covers: () => [demoLabel, ...(globeBottom.contains(key.el) ? [key.el] : [])],
-  // The question sheet comes and goes: map labels keep clear of it, but it never moves the fixed view (SPEC 6.2).
+  // The question sheet comes and goes: map labels keep clear of it, but it never moves the map (SPEC 6.2).
   avoid: () => [usui.sheet],
   frameAround: key.el,
   onMetrics: (m) => key.setMetrics(m),
+  // SPEC 7: map_move at most one per 2 s, and map_reset.
+  onMapMove: throttle<number>(2000, (zoom) => logEvent('map_move', { zoom: Math.round(zoom * 1000) / 1000 })),
+  onMapReset: () => logEvent('map_reset'),
 })
   .then((g) => {
     globeRef = g;
@@ -183,6 +186,10 @@ if (import.meta.env.DEV || testMode) {
       },
       get satellite() {
         return globeRef ? globeRef.satellite() : null;
+      },
+      /** SPEC 6.2: { zoom, lat, lon }, the view centre. */
+      get mapView() {
+        return globeRef ? globeRef.mapView() : null;
       },
       events: () => events(),
       ready,

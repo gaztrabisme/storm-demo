@@ -17,10 +17,10 @@ export interface GlobeInit {
   /** Read at the start of each satellite flight: true turns it into a cut. */
   reducedMotion(): boolean;
   /** Accessible names for the overlays. */
-  labels: { storm: string; pin: string; satellite: string; hud: HudStrings };
+  labels: { storm: string; pin: string; satellite: string; reset: string; hud: HudStrings };
   /**
    * Elements that stay over the globe for a layout (the demo label, the key on a desktop). Read when the layout
-   * changes, so the fixed map view frames the track and Vietnam in the part of the globe they leave open; province
+   * changes, so the region (the zoom-1 view) frames the track and Vietnam in the part of the globe they leave open; province
    * names behind them are left out.
    */
   covers?: () => Element[];
@@ -30,6 +30,10 @@ export interface GlobeInit {
   frameAround?: Element;
   /** Called when the map scale settles: the dot scale (storm/glyph.ts) and px per km at the view centre. */
   onMetrics?: (m: { scale: number; pxPerKm: number }) => void;
+  /** Called after an input moved the map (SPEC 6.2), with the new zoom; the caller throttles the log. */
+  onMapMove?: (zoom: number) => void;
+  /** Called when btn-map-reset is pressed. */
+  onMapReset?: () => void;
 }
 
 /**
@@ -40,7 +44,7 @@ export interface GlobeController {
   /** Resolves once the first frame has been drawn. */
   readonly ready: Promise<void>;
   onReady(cb: () => void): void;
-  /** Province names on the map in full mode. The view is fixed in both modes (SPEC 6.2). */
+  /** Province names on the map in full mode. The mode never moves the map (SPEC 6.2). */
   setMode(mode: Mode): void;
   /** Storm marker and wind area at this time (ms). */
   setTime(ms: number): void;
@@ -52,8 +56,10 @@ export interface GlobeController {
   showSatellite(): void;
   /** The close-up camera (SPEC 6.7): yaw and pitch in radians, zoom as a share of the arrival distance. */
   satellite(): { yaw: number; pitch: number; zoom: number };
-  /** Fly back to the fixed map view. */
+  /** Fly back to the map view the trip left from. */
   back(): void;
+  /** The map view (SPEC 6.2, 8): zoom 1-4 and the surface point at the view's centre. */
+  mapView(): { zoom: number; lat: number; lon: number };
   dispose(): void;
 }
 

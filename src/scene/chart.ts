@@ -40,6 +40,11 @@ export interface ChartFrame {
   settled: boolean;
   /** Camera distance in Earth radii (sets the graticule step). */
   dist: number;
+  /**
+   * The map's zoom inside the region (SPEC 6.2). Dot sizes and the key's scale stay those of zoom 1, so the dots,
+   * like the labels, keep their size in px while the map zooms, and the key does not change.
+   */
+  zoom: number;
   timeMs: number;
   storm: Step | null;
   place: (LatLon & { label?: string }) | null;
@@ -589,7 +594,8 @@ export function createChart(deps: ChartDeps) {
       prev = g;
     }
     gaps.sort((a, b) => a - b);
-    scale = glyphScale(gaps.length ? gaps[Math.floor(gaps.length * 0.15)] : 0);
+    // Zoomed in, the dots keep the zoom-1 scale (and the key with them).
+    if (f.zoom === 1) scale = glyphScale(gaps.length ? gaps[Math.floor(gaps.length * 0.15)] : 0);
     const glyphPts: number[][] = [];
     let lastOn: (typeof glyphs)[number] | null = null;
     for (const g of glyphs) {
@@ -611,7 +617,7 @@ export function createChart(deps: ChartDeps) {
       g.c.style.display = g.on ? '' : 'none';
     }
     // Map scale at the view centre, for the key's specimen.
-    const mid = deps.pick(f.width / 2, f.height / 2);
+    const mid = f.zoom === 1 ? deps.pick(f.width / 2, f.height / 2) : null;
     if (mid) {
       const q = destination(mid.lat, mid.lon, 90, 200);
       if (deps.surface(mid.lat, mid.lon, pt) && deps.surface(q.lat, q.lon, pt2)) pxPerKm = Math.hypot(pt2[0] - pt[0], pt2[1] - pt[1]) / 200;

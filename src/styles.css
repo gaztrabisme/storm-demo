@@ -235,8 +235,42 @@ p {
   overflow: hidden;
   background: var(--paper);
   color: var(--ink);
-  /* The map view is fixed (SPEC 6.2): a pinch or drag over it zooms or scrolls nothing, the page included. */
+  /* The map takes every drag and pinch over it (SPEC 6.2): the page itself never scrolls or zooms here. */
   touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The map has focus for its keys (+, -, arrows): the ring sits inside, since the map's box is clipped. */
+.globe:focus-visible {
+  outline-offset: -3px;
+}
+
+/* btn-map-reset: a square ink-edged button on the paper, placed by the scene in a free corner. */
+.globe .globe__reset {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 7;
+  background: var(--paper);
+  font-size: min(0.9375rem, 17px);
+  white-space: nowrap;
+}
+
+.view-satellite .globe__reset {
+  display: none;
+}
+
+/* Zoomed in, the map runs under the demo label: a paper ground keeps the label clear of the track. */
+.globe--zoomed .globe__demo {
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--paper) 88%, transparent);
+}
+
+.view-satellite .globe--zoomed .globe__demo {
+  background: none;
+  box-shadow: none;
 }
 
 .view-satellite .globe {
