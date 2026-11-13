@@ -57,6 +57,7 @@ function drawRings(ctx: CanvasRenderingContext2D, rings: Rings, project: Project
   }
   ctx.fillStyle = fill;
   ctx.fill('evenodd');
+  if (!(lineWidth > 0)) return;
   ctx.strokeStyle = stroke;
   ctx.lineWidth = lineWidth;
   ctx.lineJoin = 'round';
@@ -98,10 +99,10 @@ interface Box {
 }
 
 /**
- * A sphere-patch texture for a lat/lon box, painted from the given rings at w x h pixels. Its edges fade out
- * over one degree, so the patch blends into the coarser layer under it.
+ * A sphere-patch texture for a lat/lon box, painted from the given rings at w x h pixels (land fill only). With
+ * `fade`, its edges fade out over one degree, so the patch blends into the coarser layer under it.
  */
-function patchTexture(pal: EarthPalette, box: Box, rings: Rings, w: number, h: number, lineWidth: number, wrap = false): THREE.CanvasTexture {
+function patchTexture(pal: EarthPalette, box: Box, rings: Rings, w: number, h: number, fade: boolean, wrap = false): THREE.CanvasTexture {
   const { west, east, south, north } = box;
   const c = document.createElement('canvas');
   c.width = w;
@@ -117,7 +118,10 @@ function patchTexture(pal: EarthPalette, box: Box, rings: Rings, w: number, h: n
   };
   ctx.fillStyle = pal.sea;
   ctx.fillRect(0, 0, w, h);
-  drawRings(ctx, rings, project, pal.land, pal.coast, lineWidth, wrap);
+  // Land fill only: the coast itself is drawn as lines of a constant screen width (coastLines), so it stays a
+  // hairline at every zoom instead of a magnified, blurred texel stroke.
+  drawRings(ctx, rings, project, pal.land, pal.coast, 0, wrap);
+  if (!fade) return canvasTexture(c);
   // Fade the edges to transparent.
   ctx.globalCompositeOperation = 'destination-out';
   const edge = (x0: number, y0: number, x1: number, y1: number, rx: number, ry: number, rw: number, rh: number) => {
@@ -135,9 +139,16 @@ function patchTexture(pal: EarthPalette, box: Box, rings: Rings, w: number, h: n
   return canvasTexture(c);
 }
 
-/** Texture for the REGION patch, from 10m data. */
+/**
+ * The box the 10m data covers: REGION plus the one-degree margin build-coast.mjs clips it to. The fine patch
+ * covers all of it and is opaque to its edges, so only one land shape shows anywhere: 10m inside, 110m outside
+ * (no 110m outline ghosting through a faded margin).
+ */
+export const FINE: Box = { west: REGION.west - 1, east: REGION.east + 1, south: REGION.south - 1, north: REGION.north + 1 };
+
+/** Texture for the FINE patch, from 10m data. */
 export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
-  return patchTexture(pal, REGION, vn.rings as Rings, 2048, 2048, 1.6);
+  return patchTexture(pal, FINE, vn.rings as Rings, 2048, 2048, false);
 }
 
 /**
@@ -147,7 +158,7 @@ export function regionTexture(pal: EarthPalette): THREE.CanvasTexture {
  */
 export const CHART_AREA: Box = { west: 70, east: 170, south: -25, north: 50 };
 export function chartAreaTexture(pal: EarthPalette): THREE.CanvasTexture {
-  return patchTexture(pal, CHART_AREA, world as Rings, 4096, 3072, 1.4, true);
+  return patchTexture(pal, CHART_AREA, world as Rings, 4096, 3072, true, true);
 }
 
 /** Sphere patch geometry for a lat/lon box, in the same frame as THREE.SphereGeometry and vec() in boot.ts. */
@@ -157,11 +168,53 @@ export function patchGeometry(radius: number, box: Box): THREE.SphereGeometry {
   return new THREE.SphereGeometry(radius, 128, 96, (west + 180) * RAD, (east - west) * RAD, (90 - north) * RAD, (north - south) * RAD);
 }
 
-/** Sphere patch geometry covering REGION, in the same frame as THREE.SphereGeometry and vec() in boot.ts. */
+/** Sphere patch geometry covering FINE, in the same frame as THREE.SphereGeometry and vec() in boot.ts. */
 export function regionGeometry(radius: number): THREE.SphereGeometry {
+  return patchGeometry(radius, FINE);
+}
+
+/**
+ * The coast over the chart area as line segments on a sphere of the given radius (positions x, y, z per vertex,
+ * two vertices per segment, the frame of vec() in boot.ts): the 10m rings inside FINE, without the straight edges
+ * the clip to FINE added, and the 110m rings elsewhere in CHART_AREA. WebGL draws them one device pixel wide at
+ * any zoom.
+ */
+export function coastLines(radius: number): Float32Array {
   const RAD = Math.PI / 180;
-  const { west, east, south, north } = REGION;
-  return new THREE.SphereGeometry(radius, 96, 96, (west + 180) * RAD, (east - west) * RAD, (90 - north) * RAD, (north - south) * RAD);
+  const out: number[] = [];
+  const push = (lon: number, lat: number) => {
+    const c = Math.cos(lat * RAD);
+    out.push(c * Math.cos(lon * RAD) * radius, Math.sin(lat * RAD) * radius, -c * Math.sin(lon * RAD) * radius);
+  };
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const onClip = (lon0: number, lat0: number, lon1: number, lat1: number) =>
+    (near(lon0, FINE.west) && near(lon1, FINE.west)) ||
+    (near(lon0, FINE.east) && near(lon1, FINE.east)) ||
+    (near(lat0, FINE.south) && near(lat1, FINE.south)) ||
+    (near(lat0, FINE.north) && near(lat1, FINE.north));
+  const inBox = (b: Box, lon: number, lat: number) => lon > b.west && lon < b.east && lat > b.south && lat < b.north;
+  const segs = (rings: Rings, keep: (lon0: number, lat0: number, lon1: number, lat1: number) => boolean) => {
+    for (const ring of rings) {
+      const n = ring.length / 2;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const lon0 = ring[2 * i];
+        const lat0 = ring[2 * i + 1];
+        const lon1 = ring[2 * j];
+        const lat1 = ring[2 * j + 1];
+        if (Math.abs(lon1 - lon0) > 180 || !keep(lon0, lat0, lon1, lat1)) continue;
+        push(lon0, lat0);
+        push(lon1, lat1);
+      }
+    }
+  };
+  segs(vn.rings as Rings, (a, b, c, d) => !onClip(a, b, c, d));
+  segs(world as Rings, (a, b, c, d) => {
+    const mx = (a + c) / 2;
+    const my = (b + d) / 2;
+    return inBox(CHART_AREA, mx, my) && !inBox(FINE, mx, my);
+  });
+  return new Float32Array(out);
 }
 
 /**

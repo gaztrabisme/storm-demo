@@ -222,6 +222,28 @@ export function createChart(deps: ChartDeps) {
     return k;
   }
 
+  /** True when the segment [x0, y0, x1, y1] passes through the box [bx0, by0, bx1, by1] (Liang-Barsky clip). */
+  function segHitsBox(seg: number[], box: number[]): boolean {
+    const [x0, y0, x1, y1] = seg;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    let t0 = 0;
+    let t1 = 1;
+    const p = [-dx, dx, -dy, dy];
+    const q = [x0 - box[0], box[2] - x0, y0 - box[1], box[3] - y0];
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) {
+        if (q[i] < 0) return false;
+        continue;
+      }
+      const r = q[i] / p[i];
+      if (p[i] < 0) t0 = Math.max(t0, r);
+      else t1 = Math.min(t1, r);
+      if (t0 > t1) return false;
+    }
+    return true;
+  }
+
   /**
    * Places a note round its anchor: open sea first, clear of the glyphs, and (when `lines` is given) with the
    * fewest crossings of the track and the 70 % circles by its leader or its text.
@@ -244,11 +266,9 @@ export function createChart(deps: ChartDeps) {
         let cross = 0;
         if (lines) {
           cross = crossings(ax, ay, c.tx, c.ty, lines);
-          for (const [lx0, ly0, lx1, ly1] of lines) {
-            const mx = (lx0 + lx1) / 2;
-            const my = (ly0 + ly1) / 2;
-            if (mx > x0 && mx < x1 && my > y0 && my < y1) cross += 0.5;
-          }
+          // A line under the text reads as striking it through: each segment through the box weighs more than
+          // a corner of the box on land.
+          for (const l of lines) if (segHitsBox(l, c.box)) cross += 4;
         }
         const score = land * 10 + hits * 4 + cross * 3 + i * 0.15 + (d - dists[0]) * 0.04;
         if (score < bestScore) {
@@ -378,19 +398,11 @@ export function createChart(deps: ChartDeps) {
     const step = f.dist > 2.4 ? 10 : 5;
     let d = '';
     let li = 0;
+    // Degree labels are the least important marks: they are placed last (after the track, its labels and the
+    // notes), and one that would touch any of them is left out.
+    const gratWanted: Array<{ txt: string; x: number; y: number; anchor: 'start' | 'middle' }> = [];
     const lab = (txt: string, x: number, y: number, anchor: 'start' | 'middle') => {
-      const w = txt.length * charW();
-      const h = lineH();
-      const x0 = anchor === 'middle' ? x - w / 2 : x;
-      const box = [x0 - 2, y - h, x0 + w + 2, y + 3];
-      if (box[0] < 2 || box[1] < 4 || box[2] > f.width - 2 || taken.some((b) => overlaps(b, box))) return;
-      taken.push(box);
-      const e = gratLabel(li++);
-      e.textContent = txt;
-      e.setAttribute('x', String(f1(x)));
-      e.setAttribute('y', String(f1(y)));
-      e.setAttribute('text-anchor', anchor);
-      e.style.display = '';
+      gratWanted.push({ txt, x, y, anchor });
     };
     // Only the part of the grid in view: the lat/lon box under a 7 x 7 set of screen points, or the whole
     // globe when the Earth's edge is in view.
@@ -462,7 +474,6 @@ export function createChart(deps: ChartDeps) {
       }
     }
     gratPath.setAttribute('d', d);
-    for (let i = li; i < gratLabels.length; i++) gratLabels[i].style.display = 'none';
 
     // The track on screen, so an hour label never sits on it: on a phone the forecast points run through the
     // circles and a label there reads as part of the track.
@@ -655,8 +666,9 @@ export function createChart(deps: ChartDeps) {
 
     // Date labels, one every 24 h (DESIGN 2): all on one side of the track (left of travel, south on this
     // westward track) at one fixed gap from the dot, switching side only where that side is land and the other
-    // is sea. A label that would collide moves out along the same line with a short hairline leader; it is never
-    // dropped. The label at the selected time is left to the storm's note, which carries that time.
+    // is sea. A label that would collide moves out along the same line with a short hairline leader; it is
+    // dropped only where it would sit under something laid over the map (the demo label, the reset button, the
+    // panel's sheet). The label at the selected time is left to the storm's note, which carries that time.
     let side = 1;
     for (let i = 0; i < glyphs.length; i++) {
       const g = glyphs[i];
@@ -706,7 +718,7 @@ export function createChart(deps: ChartDeps) {
           const box = [cx - g.lw / 2 - 1, cy - g.lh / 2, cx + g.lw / 2 + 1, cy + g.lh / 2];
           if (box[0] < 2 || box[1] < 2 || box[2] > f.width - 2 || box[3] > f.height - 2) continue;
           const cand = { cx, cy, extra, nx, ny };
-          if (!fallback && nx === order[0][0] && ny === order[0][1] && extra === 20) fallback = cand;
+          if (!fallback && nx === order[0][0] && ny === order[0][1] && extra === 20 && !f.blocked.some((b) => overlaps(b, box))) fallback = cand;
           if (taken.some((t) => overlaps(t, box))) continue;
           if (glyphPts.some(([x, y, r]) => x + r > box[0] && x - r < box[2] && y + r > box[1] && y - r < box[3])) continue;
           placed = cand;
@@ -732,6 +744,23 @@ export function createChart(deps: ChartDeps) {
         lead.style.display = '';
       } else lead.style.display = 'none';
     }
+    for (const { txt, x, y, anchor } of gratWanted) {
+      const w = txt.length * charW();
+      const h = lineH();
+      const x0 = anchor === 'middle' ? x - w / 2 : x;
+      const box = [x0 - 2, y - h, x0 + w + 2, y + 3];
+      if (box[0] < 2 || box[1] < 4 || box[2] > f.width - 2) continue;
+      if (taken.some((b) => overlaps(b, box)) || marks.some((b) => overlaps(b, box)) || onTrack(box)) continue;
+      if (lines.some((l) => segHitsBox(l, box))) continue;
+      taken.push(box);
+      const e = gratLabel(li++);
+      e.textContent = txt;
+      e.setAttribute('x', String(f1(x)));
+      e.setAttribute('y', String(f1(y)));
+      e.setAttribute('text-anchor', anchor);
+      e.style.display = '';
+    }
+    for (let i = li; i < gratLabels.length; i++) gratLabels[i].style.display = 'none';
     lastTaken = taken.concat(marks);
   }
 

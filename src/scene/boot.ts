@@ -5,7 +5,7 @@ import { timeline, trackAt, type LatLon, type Step } from '../storm/verdict';
 import type { Mode } from '../state';
 import type { CreateGlobe, GlobeController, GlobeInit } from './types';
 import { createChart } from './chart';
-import { CHART_AREA, chartAreaTexture, landMask, patchGeometry, regionGeometry, regionTexture, worldTexture } from './coast';
+import { CHART_AREA, chartAreaTexture, coastLines, landMask, patchGeometry, regionGeometry, regionTexture, worldTexture } from './coast';
 import { EARTH, SCENE } from './colors';
 import { startFrameLoop } from './frameLoop';
 import { createHud, PART_ORDER, type HudFrame } from './hud';
@@ -134,6 +134,17 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   const regionMesh = new THREE.Mesh(regionGeometry(1.0008), regionMat);
   regionMesh.renderOrder = 2;
   scene.add(regionMesh);
+  // The coast over the chart area: lines one device pixel wide at every zoom (DESIGN 3, ink at about 0.6 px), so it
+  // stays a hairline as the map zooms in. Their opacity makes a 1 px line read as 0.6 px on a 1x screen.
+  const coastGeo = new THREE.BufferGeometry();
+  coastGeo.setAttribute('position', new THREE.BufferAttribute(coastLines(1.0012), 3));
+  const coastMat = new THREE.LineBasicMaterial({ transparent: true, depthWrite: false, opacity: Math.min(1, 0.6 * basePixelRatio) });
+  const coastMesh = new THREE.LineSegments(coastGeo, coastMat);
+  coastMesh.renderOrder = 3;
+  coastMesh.frustumCulled = false;
+  scene.add(coastMesh);
+  const coastLight = new THREE.Color(EARTH.light.coast);
+  const coastDark = new THREE.Color(EARTH.dark.coast);
   // The satellite view has a dark ground in both themes (DESIGN 5). In the light theme the paper Earth turns into
   // the night screen's colours on the way out: the shader maps each texel's brightness from the paper palette
   // (coast ink, land, sea) onto the night palette, by uNight from 0 (paper) to 1 (night).
@@ -489,6 +500,14 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       if (x1 > x0 && y1 > y0) out.push([x0, y0, x1, y1]);
     }
     return out;
+  }
+  /**
+   * What covers the map now: zoomed in, the key is faded out (styles.css, .globe--zoomed), so the chart and the
+   * reset button may use its corner. The home framing (insets) still leaves its band.
+   */
+  function liveCovers(): Element[] {
+    const els = init.covers?.() ?? [];
+    return view.zoom > 1 && init.frameAround ? els.filter((e) => e !== init.frameAround) : els;
   }
   /** Heights covered at the top and at the bottom of the canvas, with a margin; they leave at least 40 % open. */
   function insets(): { top: number; bottom: number } {
@@ -872,9 +891,13 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     earthMat.color.setScalar(k);
     areaMat.color.setScalar(k);
     regionMat.color.setScalar(k);
-    areaMesh.visible = regionMesh.visible = trip < 0.6;
+    areaMesh.visible = regionMesh.visible = coastMesh.visible = trip < 0.6;
     orbitDots.visible = trip > 0;
     nightUniforms.uNight.value = ground === 'light' ? smooth(Math.min(1, trip / 0.8)) : 0;
+    // The coast lines follow the same paper-to-night change and dimming as the textures.
+    if (ground === 'dark') coastMat.color.copy(coastDark);
+    else coastMat.color.copy(coastLight).lerp(coastDark, nightUniforms.uNight.value);
+    coastMat.color.multiplyScalar(k);
   }
 
   /** True when only the automatic turn moves the picture this frame (no flight, no input). */
@@ -1019,6 +1042,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
    * map), the storm marker and the pin. Kept free of allocation, as it runs on every frame of a pan.
    */
   const RESET_BOXES = 8;
+  const phoneLayout = window.matchMedia('(max-width: 899px)');
   const resetBoxes = new Float32Array(RESET_BOXES * 4);
   let nCover = -1;
   let nBoxes = 0;
@@ -1032,7 +1056,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     nBoxes++;
   };
   const spotFree = (x: number, y: number): boolean => {
-    if (y < 12 || y + resetH > height - 12) return false;
+    if (y < 4 || y + resetH > height - 4) return false;
     for (let j = 0; j < nBoxes; j++) {
       const o = j * 4;
       if (x - 4 < resetBoxes[o + 2] && x + resetW + 4 > resetBoxes[o] && y - 4 < resetBoxes[o + 3] && y + resetH + 4 > resetBoxes[o + 1]) return false;
@@ -1054,20 +1078,22 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     if (!on) return;
     if (nCover < 0) {
       nBoxes = 0;
-      for (const b of coverBoxes()) pushBox(b[0], b[1], b[2], b[3]);
+      for (const b of coverBoxes(liveCovers())) pushBox(b[0], b[1], b[2], b[3]);
       nCover = nBoxes;
     }
     nBoxes = nCover;
     if (!stormEl.hidden) pushBox(last.storm[0] - 16, last.storm[1] - 16, last.storm[0] + 16, last.storm[1] + 16);
     if (!pinEl.hidden) pushBox(last.pin[0] - 12, last.pin[1] - 12, last.pin[0] + 12, last.pin[1] + 12);
-    const m = 12;
+    // On a phone the control is text weight in the bottom corner (styles.css), clear of the demo label at the top.
+    const phone = phoneLayout.matches;
+    const m = phone ? 4 : 12;
     let bx = width - resetW - m;
-    let by = m;
-    // Right side first, then left; at the top, below each box, above each box, at the bottom.
+    let by = phone ? height - resetH - m : m;
+    // Right side first, then left; at the top (the bottom on a phone), below each box, above each box, at the bottom.
     search: for (let side = 0; side < 2; side++) {
       const x = side === 0 ? width - resetW - m : m;
       for (let k = -1; k <= nBoxes * 2; k++) {
-        const y = k < 0 ? m : k === nBoxes * 2 ? height - resetH - m : k % 2 === 0 ? resetBoxes[(k >> 1) * 4 + 3] + 8 : resetBoxes[(k >> 1) * 4 + 1] - resetH - 8;
+        const y = k < 0 ? (phone ? height - resetH - m : m) : k === nBoxes * 2 ? height - resetH - m : k % 2 === 0 ? resetBoxes[(k >> 1) * 4 + 3] + 8 : resetBoxes[(k >> 1) * 4 + 1] - resetH - 8;
         if (spotFree(x, y)) {
           bx = x;
           by = y;
@@ -1177,7 +1203,14 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
 
   let metricsKey = '';
   function updateChart(settled: boolean): void {
-    const blocked = coverBoxes([...(init.covers?.() ?? []), ...(init.avoid?.() ?? [])]);
+    const blocked = coverBoxes([...liveCovers(), ...(init.avoid?.() ?? [])]);
+    // The zoomed demo label carries a 4 px paper ground beyond its box (styles.css): nothing is placed under it.
+    for (const b of blocked) {
+      b[0] -= 5;
+      b[1] -= 5;
+      b[2] += 5;
+      b[3] += 5;
+    }
     if (!stormEl.hidden) blocked.push([last.storm[0] - 13, last.storm[1] - 13, last.storm[0] + 13, last.storm[1] + 13]);
     if (!pinEl.hidden) blocked.push([last.pin[0] - 9, last.pin[1] - 9, last.pin[0] + 9, last.pin[1] + 9]);
     if (!resetBtn.hidden) blocked.push([resetPos[0] - 4, resetPos[1] - 4, resetPos[0] + resetW + 4, resetPos[1] + resetH + 4]);
@@ -1302,7 +1335,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     drawnSeq = inputSeq;
     renderer.render(scene, camera);
     updateOverlays();
-    updateChart(!moving);
+    // The notes wait only for a camera flight; the reset glide and pans keep them, re-placed on each frame.
+    updateChart(!flight.on && trip === 0);
     updateLabels();
     if (!drawn) {
       drawn = true;
