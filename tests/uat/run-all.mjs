@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const AREAS = ['onboarding', 'check', 'modes', 'settings', 'assistant', 'satellite', 'figure', 'notwarning', 'log', 'layout', 'prod'];
+const AREAS = ['onboarding', 'check', 'modes', 'mapview', 'settings', 'assistant', 'satellite', 'figure', 'notwarning', 'log', 'layout', 'prod'];
 const dir = fileURLToPath(new URL('.', import.meta.url));
 const env = { ...process.env, UAT_URL: process.env.UAT_URL ?? 'http://localhost:5195/?test=1' };
 

@@ -1,7 +1,7 @@
 // UAT, SPEC 2 + 4 + 6: layout at phone and desktop width, light and dark; target sizes; no horizontal scroll;
 // focus ring; no web font; no English on screen; demo label; phone/desktop split; reduced motion; no camera move after a verdict.
 // UAT_URL=http://localhost:5195/?test=1 node tests/uat/layout.mjs
-import { DEMO_LABEL, browser, DRAW_COUNTER, SAME_PX, canvasShot, pixelDiff, HAI_PHONG, SHOTS, T, check, context, finish, noHScroll, onTop, open, ready, scenario, skipOnboarding, text, url, visible, waitView, waitVisible } from './lib.mjs';
+import { mapView, pinch, DEMO_LABEL, browser, DRAW_COUNTER, SAME_PX, canvasShot, pixelDiff, HAI_PHONG, SHOTS, T, check, context, finish, noHScroll, onTop, open, ready, scenario, skipOnboarding, text, url, visible, waitView, waitVisible } from './lib.mjs';
 
 const DEMO = DEMO_LABEL;
 // Same word list as tests/unit/i18n.test.ts; proper names (Yagi, GK-2A, GPS) are not on it.
@@ -116,12 +116,37 @@ for (const phone of [true, false]) {
         check(`${tag} the main panel (btn-check) sits in the right 420 px`, !!bc && bc.x >= 1018, JSON.stringify(bc));
       }
 
+      // SPEC 6.2: with the map zoomed in, btn-map-reset shows; the layout rules still hold with it on screen.
+      if (g) {
+        const gx = g.x + g.width / 2;
+        const gy = g.y + g.height / 2;
+        if (phone) for (let k = 0; k < 2; k++) await pinch(page, gx, gy, 80, 200);
+        else {
+          await page.mouse.move(gx, gy);
+          for (let k = 0; k < 5; k++) await page.mouse.wheel(0, -200);
+        }
+        await page.mouse.move(5, 5);
+        await page.waitForTimeout(800);
+      }
+      check(`${tag} with the map zoomed in, btn-map-reset is visible`, await visible(page, 'btn-map-reset'), JSON.stringify(await mapView(page)));
+      let bad = await smallTargets(page);
+      check(`${tag} with the map zoomed in, every control (btn-map-reset too) is at least 44x44 px`, bad.length === 0, bad.slice(0, 6).join(', '));
+      check(`${tag} no horizontal scroll with the map zoomed in`, await noHScroll(page));
+      check(`${tag} demo-label stays visible and not covered with the map zoomed in`, (await visible(page, 'demo-label')) && (await onTop(page, 'demo-label')));
+      eng = await englishOnScreen(page);
+      check(`${tag} no English UI words on screen with the map zoomed in`, eng.length === 0, eng.slice(0, 3).join(' | '));
+      const zrings = await missingFocusRings(page);
+      check(`${tag} with the map zoomed in, each control reached by Tab shows a focus ring`, zrings.focused > 0 && zrings.bad.length === 0, `${zrings.focused} focused; no ring: ${zrings.bad.slice(0, 6).join(', ')}`);
+      await page.screenshot({ path: `${SHOTS}layout-${phone ? 375 : 1440}-${scheme}-zoomed.png` });
+      if (await visible(page, 'btn-map-reset')) await T(page, 'btn-map-reset').first().click();
+      await page.waitForTimeout(800);
+
       await T(page, 'btn-check').first().click();
       await waitVisible(page, 'verdict', 15000);
       await page.waitForTimeout(1500);
       check(`${tag} no horizontal scroll with the verdict open`, await noHScroll(page));
       check(`${tag} demo-label stays visible and not covered with the verdict open`, (await visible(page, 'demo-label')) && (await onTop(page, 'demo-label')));
-      let bad = await smallTargets(page);
+      bad = await smallTargets(page);
       check(`${tag} with the verdict open, every control is at least 44x44 px`, bad.length === 0, bad.slice(0, 6).join(', '));
       eng = await englishOnScreen(page);
       check(`${tag} no English UI words on screen with the verdict open`, eng.length === 0, eng.slice(0, 3).join(' | '));
@@ -194,7 +219,7 @@ await scenario('reduced motion: no running animation with panels open (1440x900)
   await waitVisible(page, 'verdict', 15000);
   await page.waitForTimeout(50);
   check('(reduce) no running animation as the verdict opens', (await running()) === 0, `${await running()}`);
-  // SPEC 6.3 step 4: no camera move after the verdict (the map view is fixed): the storm marker keeps its place.
+  // SPEC 6.2 / 6.3 step 4: no camera move after the verdict (nothing moves the map by itself): the storm marker keeps its place.
   await page.mouse.move(5, 5);
   await page.waitForTimeout(1500);
   const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);

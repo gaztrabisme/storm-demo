@@ -184,7 +184,7 @@ await scenario('easy mode is the default (375x812)', async () => {
   }
   const lo = await learnOpens();
   check('(375) opening the knowledge cards logs learn_open with a non-empty { card }', lo.length > 0 && lo.every((e) => e.data && e.data.card !== undefined && e.data.card !== null && String(e.data.card).length > 0), JSON.stringify(lo));
-  // SPEC 6.2 easy mode: the marker shows the storm at now and the view is fixed, so the marker stays put.
+  // SPEC 6.2 easy mode: the marker shows the storm at now and nothing moves the map by itself, so the marker stays put.
   const g = await T(page, 'globe').first().boundingBox().catch(() => null);
   const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
   check('(375) storm-marker is visible and sits inside the globe', (await visible(page, 'storm-marker')) && centreInside(m0, g), `${JSON.stringify(m0)} in ${JSON.stringify(g)}`);
@@ -283,45 +283,7 @@ await scenario('?mode=easy overrides a saved "Đầy đủ" for one load, not sa
   await ctx.close();
 });
 
-// SPEC 6.2: the map view is fixed in both modes: no drag, no scroll or pinch zoom, no camera moves.
-// Run under reduced motion so the only thing that could change the globe image is the input itself.
-async function dragAndWheel(page) {
-  const g = await T(page, 'globe').first().boundingBox();
-  const cx = g.x + g.width / 2;
-  const cy = g.y + g.height / 2;
-  await page.mouse.move(5, 5);
-  await page.waitForTimeout(500);
-  const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
-  const a = await canvasShot(page);
-  await page.mouse.move(cx, cy);
-  await page.mouse.down();
-  for (let k = 1; k <= 10; k++) await page.mouse.move(cx + k * 15, cy + k * 5);
-  await page.mouse.up();
-  await page.mouse.move(5, 5);
-  await page.waitForTimeout(1000);
-  const b = await canvasShot(page);
-  await page.mouse.move(cx, cy);
-  for (let k = 0; k < 5; k++) await page.mouse.wheel(0, -200);
-  await page.mouse.move(5, 5);
-  await page.waitForTimeout(1000);
-  const c = await canvasShot(page);
-  const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
-  return { drag: await pixelDiff(page, a, b), wheel: await pixelDiff(page, b, c), m0, m1 };
-}
-
-for (const mode of ['easy', 'full']) {
-  await scenario(`the map ignores drag and scroll in ${mode} mode (1440x900, reduced motion)`, async () => {
-    const ctx = await context({ reducedMotion: 'reduce' });
-    const page = await open(ctx, url({ mode }));
-    await skipOnboarding(page);
-    await page.waitForTimeout(1000);
-    const d = await dragAndWheel(page);
-    check(`(${mode}) dragging the globe does not move the view (same image)`, d.drag <= SAME_PX, `${(d.drag * 100).toFixed(2)} % of pixels changed`);
-    check(`(${mode}) scrolling over the globe does not zoom (same image)`, d.wheel <= SAME_PX, `${(d.wheel * 100).toFixed(2)} % of pixels changed`);
-    check(`(${mode}) storm-marker is in the same place after the drag and the scroll (within 1 px)`, !!d.m0 && !!d.m1 && Math.abs(d.m0.x - d.m1.x) <= 1 && Math.abs(d.m0.y - d.m1.y) <= 1, `${JSON.stringify(d.m0)} -> ${JSON.stringify(d.m1)}`);
-    await ctx.close();
-  });
-}
+// SPEC 6.2 panning and zooming within the region: tests/uat/mapview.mjs.
 
 // SPEC 6.2: the storm marker is at the selected time's track position. The tests place a pin (__app.setPlace) at the
 // track position for that time, from yagi.json (linear in lat/lon, SPEC 5.1), and compare it with the marker on
@@ -366,26 +328,7 @@ await scenario('the storm marker is at the track position for the selected time 
   await ctx.close();
 });
 
-// SPEC 6.2: no pinch zoom on the map. A two-finger pinch over the globe on a phone leaves the image and the marker.
-await scenario('the map ignores a pinch (375x812 touch, reduced motion)', async () => {
-  const ctx = await context({ phone: true, reducedMotion: 'reduce' });
-  const page = await open(ctx);
-  await skipOnboarding(page);
-  await page.waitForTimeout(1000);
-  const g = await T(page, 'globe').first().boundingBox();
-  const m0 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
-  const a = await canvasShot(page);
-  await pinch(page, g.x + g.width / 2, g.y + g.height / 2, 60, 220);
-  await page.waitForTimeout(1000);
-  const b = await canvasShot(page);
-  const m1 = await T(page, 'storm-marker').first().boundingBox().catch(() => null);
-  const d = await pixelDiff(page, a, b);
-  check('(375) a pinch over the globe does not zoom (same image)', d <= SAME_PX, `${(d * 100).toFixed(2)} % of pixels changed`);
-  check('(375) storm-marker is in the same place after the pinch (within 1 px)', !!m0 && !!m1 && Math.abs(m0.x - m1.x) <= 1 && Math.abs(m0.y - m1.y) <= 1, `${JSON.stringify(m0)} -> ${JSON.stringify(m1)}`);
-  await ctx.close();
-});
-
-// SPEC 6.2: the fixed view frames the whole track and all of Vietnam for the current layout.
+// SPEC 6.2: the first view (zoom 1, the region) frames the whole track and all of Vietnam for the current layout.
 // Vietnam's four extreme points (our choice of test points): north, south, east and west.
 const VN_EDGES = [
   { name: 'cực Bắc', lat: 23.39, lon: 105.32 },
@@ -395,7 +338,7 @@ const VN_EDGES = [
 ];
 for (const phone of [true, false]) {
   const tag = phone ? '(375 frame)' : '(1440 frame)';
-  await scenario(`the fixed view frames the track and Vietnam ${tag}`, async () => {
+  await scenario(`the first view frames the track and Vietnam ${tag}`, async () => {
     const ctx = await context({ phone, reducedMotion: 'reduce' });
     const page = await open(ctx, url({ mode: 'full' }));
     await skipOnboarding(page);

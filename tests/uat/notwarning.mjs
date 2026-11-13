@@ -378,7 +378,7 @@ for (const [phone, mode, geo, label] of [[true, 'easy', HAI_PHONG, 'affected'], 
  * Where the strong-wind area and the storm marker are on screen. The marker is the storm-marker box (SPEC 6.2). The area
  * has no hook, so its points are found through the pin: for each quadrant whose 34-kt radius at now is above 0, a point
  * at half that radius from the centre (bearing 45°, 135°, 225°, 315°) is given to __app.setPlace and the place-pin's
- * centre is read; the view is fixed (SPEC 6.2), so it is where that point is drawn. The pin is then moved far away
+ * centre is read; nothing moves the map by itself (SPEC 6.2), so it is where that point is drawn. The pin is then moved far away
  * (Hà Nội) and hidden for the screenshot, which is taken in reduced motion.
  */
 function destination(lat, lon, bearingDeg, km, R = 6371) {

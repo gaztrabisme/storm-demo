@@ -461,7 +461,7 @@ await scenario('reduced motion: the view switches as a cut (375x812)', async () 
   await T(page, 'btn-back').first().click();
   const db = await cutMs();
   check('(reduce) btn-back returns to "map" within 500 ms of the click', typeof db === 'number' && db <= 500, `${db === null ? 'never' : Math.round(db)} ms`);
-  // SPEC 6.7: btn-back flies back to the map, and the map view is fixed (6.2): the globe looks as it did before.
+  // SPEC 6.7: btn-back flies back to the map and the trip returns to the view it started from (6.2): the globe looks as it did before.
   await page.mouse.move(5, 5);
   await page.waitForTimeout(1000);
   const after = await canvasShot(page);

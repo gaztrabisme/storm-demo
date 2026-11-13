@@ -41,6 +41,8 @@ export const BANNED_PHRASES = ['sơ tán', 'khẩn cấp', 'Bạn nên làm ngay
 
 // ---- SPEC 6.2 / 6.3 / 6.4 ----
 export const CONE_LEGEND = 'Vòng tròn: nơi tâm bão có thể đi qua';
+/** SPEC 6.2: the button that returns the map to the whole region [btn-map-reset]. */
+export const MAP_RESET = 'Xem toàn vùng';
 export const CONE = [
   { hours: 24, radiusKm: 86 },
   { hours: 48, radiusKm: 148 },
@@ -151,7 +153,7 @@ export const CLIP_NAMES = ['idle', 'hello', 'talk', 'alert', 'point', 'nod', 're
 // ---- SPEC 10.5 ----
 export const WHERE_TEMPLATE = 'Lúc {time}, tâm bão ở khoảng {lat}° Bắc, {lon}° Đông, sức gió cấp {n} (ước tính).';
 
-/** Every fixed string SPEC section 10 (and the 6.2 legend, 6.4 credits) puts in vi.json word for word. */
+/** Every fixed string SPEC section 10 (and the 6.2 legend and map-reset button, 6.4 credits) puts in vi.json word for word. */
 export const APPROVED_FIXED = [
   CARD_WIND.title, ...CARD_WIND.body, CARD_WIND.source,
   CARD_RADIUS.title, ...CARD_RADIUS.body, CARD_RADIUS.source,
@@ -159,6 +161,7 @@ export const APPROVED_FIXED = [
   PREPARE_LEAD, ...ACTIONS,
   SAT_HEADING, ...SAT_FACTS, SAT_SOURCE,
   CONE_LEGEND,
+  MAP_RESET,
   ...CREDITS,
   HUD_HEADER, ...HUD_LABELS,
 ];

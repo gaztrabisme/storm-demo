@@ -715,6 +715,39 @@ export async function timeFlight(page, view, start, ms = 2500) {
 /** Our threshold for "the camera is flying": over 2 % of the 160 x 120 picture changes between two copies. */
 export const MOVING_PX = 0.02;
 
+// ---- SPEC 6.2: the map moves within the region ----
+/** window.__app.mapView as { zoom, lat, lon }, or null when the hook is missing. */
+export const mapView = (page) => page.evaluate(() => (window.__app?.mapView ? { ...window.__app.mapView } : null));
+export const finiteView = (v) => !!v && [v.zoom, v.lat, v.lon].every((x) => typeof x === 'number' && Number.isFinite(x));
+/** Largest difference between two map views in zoom, lat and lon (Infinity when either is missing). */
+export const viewDelta = (a, b) => (finiteView(a) && finiteView(b) ? Math.max(Math.abs(a.zoom - b.zoom), Math.abs(a.lat - b.lat), Math.abs(a.lon - b.lon)) : Infinity);
+/**
+ * Puts keyboard focus on the map: Tab, pressed up to 40 times, until the focused element is [globe] or a non-control
+ * element inside it (not a button, link or form field). Returns true when it got there.
+ */
+export async function focusMap(page) {
+  await page.evaluate(() => document.activeElement && document.activeElement !== document.body && document.activeElement.blur());
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press('Tab');
+    const ok = await page.evaluate(() => {
+      const e = document.activeElement;
+      const g = document.querySelector('[data-test="globe"]');
+      return !!e && !!g && g.contains(e) && !e.matches('button, a, input, select, textarea, summary');
+    });
+    if (ok) return true;
+  }
+  return false;
+}
+/** Page scroll and zoom state: window scroll, visual viewport scale and offset, and every element's scroll offset. */
+export const pageScrollState = (page) =>
+  page.evaluate(() => {
+    const els = [];
+    for (const e of document.querySelectorAll('*')) if (e.scrollTop || e.scrollLeft) els.push(`${e.getAttribute('data-test') ?? e.tagName}:${e.scrollTop},${e.scrollLeft}`);
+    const vv = window.visualViewport;
+    return { x: scrollX, y: scrollY, scale: vv ? vv.scale : 1, vx: vv ? vv.offsetLeft : 0, vy: vv ? vv.offsetTop : 0, w: innerWidth, els: els.join(' ') };
+  });
+export const sameScroll = (a, b) => a.x === b.x && a.y === b.y && Math.abs(a.scale - b.scale) < 1e-6 && a.vx === b.vx && a.vy === b.vy && a.w === b.w && a.els === b.els;
+
 export async function finish() {
   check('no page errors and no network requests SPEC 2 / 7 forbid', errors.length === 0, errors.slice(0, 3).join(' | '));
   await browser.close();

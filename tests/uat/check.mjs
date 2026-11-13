@@ -21,7 +21,7 @@ async function noActionsInVerdict(page, tag) {
   check(`${tag}one btn-advice in the verdict card, visible, reading "${BTN_ADVICE}"`, n === 1 && (await visible(page, 'btn-advice')) && adv === BTN_ADVICE, `${n} / ${adv}`);
 }
 // SPEC 6.3 step 4: the pin marks the place on the globe. Polls up to 8 s so a camera flight can finish.
-// SPEC 6.2 / 6.3 step 4: the map view is fixed, so a verdict moves no camera: storm-marker keeps its place on screen.
+// SPEC 6.2 / 6.3 step 4: nothing moves the map by itself, so a verdict moves no camera: storm-marker keeps its place on screen.
 const markerBox = (page) => T(page, 'storm-marker').first().boundingBox().catch(() => null);
 function markerStill(m0, m1, tag) {
   check(`${tag}no camera move after the verdict: storm-marker is where it was before the check (within 1 px)`, !!m0 && !!m1 && Math.abs(m0.x - m1.x) <= 1 && Math.abs(m0.y - m1.y) <= 1, `${JSON.stringify(m0)} -> ${JSON.stringify(m1)}`);
