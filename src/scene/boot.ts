@@ -34,9 +34,13 @@ const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 2;
 /** The model's larger side on screen at arrival, as a share of the view's shorter side ("about half"). */
 const ARRIVAL_FILL = 0.5;
-/** The slow automatic turn, in radians per second, and the pause after input before it starts again (ms). */
+/**
+ * The slow automatic turn, in radians per second; the pause after arrival or after input before it starts (ms); and
+ * the time it takes to reach full speed once it starts (ms), so the landing settles before the model begins to turn.
+ */
 const AUTO_TURN = 1 * (Math.PI / 180);
 const AUTO_PAUSE_MS = 1000;
+const AUTO_EASE_MS = 1500;
 const AUTO_FRAME_MS = 100;
 /** Drag and key steps (radians per pixel, radians per key press). */
 const DRAG_RAD = 0.005;
@@ -683,6 +687,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
         flight.on = false;
         flightResolution(false);
         trip = flight.to;
+        // Landed on the model: the automatic turn waits, as after input, then eases in.
+        if (flight.to === 1) close.idleUntil = now + AUTO_PAUSE_MS;
         const done = flight.done;
         flight.done = null;
         done?.();
@@ -690,7 +696,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     }
     autoOnly = false;
     if (!flight.on && satView && trip === 1 && !close.held && !init.reducedMotion()) {
-      if (now >= close.idleUntil) close.yaw += AUTO_TURN * dt;
+      if (now >= close.idleUntil) close.yaw += AUTO_TURN * smooth(Math.min(1, (now - close.idleUntil) / AUTO_EASE_MS)) * dt;
       autoOnly = !moving;
       moving = true;
     }
