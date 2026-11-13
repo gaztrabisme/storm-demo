@@ -4,7 +4,7 @@ Reader: the agents who write the acceptance tests and build the app. Everything 
 
 ## 1. Purpose
 
-A static web page in Vietnamese. It replays a past storm (Yagi, 2024) as if it were a forecast. An older, non-technical user should learn three things: whether their place is hit by strong wind, when, and what to do. A tester runs sessions on it and exports what users did.
+A static web page in Vietnamese. It replays a past storm (Yagi, 2024) as if it were a forecast. An older, non-technical user should learn whether their place is in the simulated strong-wind zone, when, and where the official safety advice is. A tester runs sessions on it and exports what users did.
 
 ## 2. Stack and rules
 
@@ -15,6 +15,13 @@ A static web page in Vietnamese. It replays a past storm (Yagi, 2024) as if it w
 - Every interactive target is ≥ 44 × 44 px. There is no horizontal scroll at 375 px width. Visible focus ring on every control. `prefers-reduced-motion: reduce` removes all animation and turns the camera flights into cuts.
 - Nothing is drawn while the tab is hidden.
 - Times are shown in Vietnam time (UTC+7), format `HH:mm, dd/MM`. Data times are UTC.
+
+### 2.1 Not a warning (club plan, section 9.4; owner, 2026-11-13)
+- The page must never read as an official warning. Every rule below is testable.
+- **No red.** No element's computed `color`, `background-color` or `border-*-color` has an HSL hue in 330°–30° with saturation above 35% and alpha above 0.1. The map's storm drawing (track, marker, strong-wind area, labels) uses the neutral storm colour of DESIGN.md 3. The Usui-chan model's own textures are exempt.
+- **No commands.** The words `sơ tán` and `khẩn cấp`, and the phrases `Bạn nên làm ngay` and `Vẫn nên theo dõi tin bão`, do not appear in any visible text, except inside the official advice quoted with its source: the `Làm gì khi bão tới?` card body and the `prepare` chip answer (10.3).
+- **No unprompted messages.** Nothing pops up by itself. Usui-chan speaks only after the user taps her or a chip, or in onboarding.
+- The only English on the page is the second half of the footer (6.1) and proper names.
 
 ## 3. Data
 
@@ -54,7 +61,7 @@ Natural Earth coastlines (public domain). Use 10m for the Vietnam region and 110
 - The page runs on a fixed simulated "now": **2024-09-05 00:00 UTC (07:00, 05/09 Vietnam time)**.
 - Track points before now are drawn as a solid "đã đi qua" (past) line; points after now as a dashed "dự báo" (forecast) line.
 - The verdict and timeline only consider times ≥ now.
-- A label is always visible on the map: `Bão mô phỏng, dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): 07:00, 05/09`.
+- A label is always visible on the map: `Mô phỏng nghiên cứu – không phải cảnh báo · dựng lại từ bão Yagi (2024) · Bây giờ (mô phỏng): 07:00, 05/09`.
 
 ## 5. Verdict rule — `src/storm/verdict.ts` (pure functions, unit-tested)
 
@@ -84,6 +91,8 @@ Each listed element carries the `data-test` value given in brackets.
 - Title `Bản đồ bão` [`title`].
 - `Nguồn dữ liệu` button [`btn-source`], which opens the satellite view (6.6).
 - `Cài đặt` button [`btn-settings`], which opens settings (6.5).
+- **Official bulletin block** [`official-bulletin`], directly under the top bar and above the map and panel, full width, in its own colour (DESIGN.md 3), visible in both modes and on every view except the satellite close-up. Text: `Bản tin chính thức: Trung tâm Dự báo khí tượng thủy văn quốc gia. Trang này sẽ đặt bản tin chính thức ở đây.` The centre's name is a link to `https://nchmf.gov.vn` with `target="_blank" rel="noopener"` (a link, not a request the page makes). It is a placeholder: no bulletin content.
+- **Footer** [`disclaimer`], always visible at the bottom of the page or panel, small text: `Mô phỏng nghiên cứu – không phải cảnh báo. Research simulation – not a warning.`
 
 ### 6.2 Globe [`globe`]
 - The three.js globe with coastlines, the track (past solid, forecast dashed) and a storm marker at the selected time [`storm-marker`]. In full mode, the place markers are labelled with province names.
@@ -102,23 +111,24 @@ Each listed element carries the `data-test` value given in brackets.
   3. **Denied, failed, or no response in 8 s:** show the province picker [`province-picker`] (a native `select` of the 34 provinces) with the line `Không lấy được vị trí. Chọn tỉnh của bạn:`.
   4. Then (no camera move: the view is fixed) a pin [`place-pin`] marks the place, and the verdict card opens.
 - **Verdict card** [`verdict`], with attribute `data-affected="true|false"`:
-  - Affected: heading `Có. Gió từ cấp 8 trở lên sẽ tới {place}` [`verdict-head`]; line `Từ khoảng {firstInside} đến {lastInside}` [`verdict-when`]; `Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)` [`verdict-wind`] from `peakWindKt`; the heading `Bạn nên làm ngay` and the 3 actions of section 10.3 [`verdict-actions`].
-  - Not affected: heading `Không. {place} nằm ngoài vùng gió từ cấp 8 trở lên` [`verdict-head`]; line `Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}` [`verdict-when`]; line `Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.` [`verdict-note`]; the heading `Vẫn nên theo dõi tin bão` and the same 3 actions.
-  - Under the actions, the source line [`verdict-source`] from section 10.3.
+  - Affected: heading `Theo bản mô phỏng: {place} nằm trong vùng gió từ cấp 8 trở lên` [`verdict-head`]; line `Từ khoảng {firstInside} đến {lastInside}` [`verdict-when`]; `Sức gió mạnh nhất gần tâm bão: cấp {n} (ước tính)` [`verdict-wind`] from `peakWindKt`.
+  - Not affected: heading `Theo bản mô phỏng: {place} nằm ngoài vùng gió từ cấp 8 trở lên` [`verdict-head`]; line `Tâm bão gần nhất cách {place} khoảng {km} km, lúc {time}` [`verdict-when`]; line `Nơi này vẫn có thể có gió cấp 6–7 và mưa lớn.` [`verdict-note`].
+  - Both: no action list and no heading over actions. One link-styled button `Khuyến cáo phòng tránh bão của cơ quan chức năng` [`btn-advice`] opens the `Làm gì khi bão tới?` card (expanding `Tìm hiểu thêm` first in easy mode) and moves focus to its heading. It logs `learn_open` with `{ card: "prepare" }`.
+  - The verdict uses the neutral storm colour for its left rule; no red (2.1).
   - The button `Chọn nơi khác` [`btn-recheck`] opens the province picker.
 - **Timeline** [`timeline`] (full mode only): a list of provinces from `timeline()`, each row [`timeline-row`] showing the name and either `{firstInside} – {lastInside}` or `tâm bão cách {km} km`. The unaffected rows come under the sub-heading `Không có gió từ cấp 8 trở lên`. A row is affected when its `data-affected` is `true`. Tapping a row selects that province as the place.
 - **Knowledge cards** [`learn`]: 3 cards, `Cấp gió là gì?`, `Vùng gió mạnh là gì?`, `Làm gì khi bão tới?`. Each card has a body and a source line [`learn-source`], all from SOURCES.md. In easy mode the cards are collapsed into one `Tìm hiểu thêm` disclosure.
 
 ### 6.4 Usui-chan [`assistant`]
 - A 56 px portrait button [`assistant-avatar`] in the corner. Assets are copied from AstroSphere `src/assets/guide/usui-avatar.webp` and `usui-pose.webp`.
-- **Warning pop-up** [`assistant-warning`]: shown once per session, only after a verdict with `affected: true`. Text: `{place} sẽ có gió từ cấp 8 trở lên từ khoảng {firstInside}. Bấm vào mình nếu cần hỏi gì nhé.` It never appears for an unaffected place, and never more than once per session. Close with × or Esc.
+- **No warning pop-up** (2.1). Usui-chan never speaks unprompted; no `assistant-warning` element exists.
 - **Tapping the avatar** opens the question sheet [`assistant-sheet`] with these chips [`chip`], each with `data-chip` set to its id:
 
   | id | Chip text | Action |
   |---|---|---|
   | `affected` | Nhà tôi có bị ảnh hưởng không? | runs the same flow as `btn-check` |
   | `when` | Khi nào bão tới chỗ tôi? | answers from the current verdict, or runs the check first |
-  | `prepare` | Tôi cần chuẩn bị gì? | shows the 3 safety actions |
+  | `prepare` | Tôi cần chuẩn bị gì? | shows the 3 actions of 10.3 as the official advice, with the 10.3 source line under them |
   | `windlevel` | Cấp gió là gì? | shows the wind-level card text |
   | `radius` | Vùng gió mạnh là gì? | shows the radius card text |
   | `where` | Bão đang ở đâu? | highlights the storm marker (no camera move), answers with its position and time |
@@ -139,7 +149,7 @@ Each listed element carries the `data-test` value given in brackets.
 ### 6.6 First run [`onboarding`]
 Shown when `stormdemo.settings.v1` is absent. Three steps. Steps 1 and 2 have `Tiếp` and `Bỏ qua`; step 3 has only `Bắt đầu`:
 1. Text size, with a live preview.
-2. Mode, with one line on each choice.
+2. Mode, with one line on each choice. The full-mode line is `Thêm thanh thời gian và danh sách các tỉnh.` (owner-approved 2026-11-13).
 3. `Trang này có thể hỏi vị trí của bạn để biết bão có tới chỗ bạn không. Bạn có thể chọn tỉnh thay vì cho vị trí.`
 
 Finishing or skipping saves the settings and never shows the onboarding again.
@@ -155,7 +165,7 @@ Finishing or skipping saves the settings and never shows the onboarding again.
 
 ### 6.8 Usui-chan animation
 - The 56 px corner button [`assistant-avatar`] stays the static `usui-avatar.webp` portrait.
-- Wherever Usui-chan speaks (the warning pop-up, the question sheet, onboarding step 1, the satellite view's first visit), a half-body Usui-chan [`assistant-figure`] is drawn from the club's model `usui-chan.glb` (copied from AstroSphere `public/models/`) in a small transparent canvas, about 120 px tall on phone and 160 px on desktop. Until it loads, or if WebGL fails, the `usui-pose.webp` image shows instead.
+- Wherever Usui-chan speaks (the question sheet, onboarding step 1, the satellite view's first visit), a half-body Usui-chan [`assistant-figure`] is drawn from the club's model `usui-chan.glb` (copied from AstroSphere `public/models/`) in a small transparent canvas, about 120 px tall on phone and 160 px on desktop. Until it loads, or if WebGL fails, the `usui-pose.webp` image shows instead.
 - Motion is a **library of reusable clips** built procedurally on the model's humanoid bones (`J_Bip_*`) and face shapes (`Fcl_*`), in `src/assistant/clips/`. Each clip is a pure function of time that returns bone rotations and face weights, so clips blend and are unit-testable:
 
   | Clip | What it does |
@@ -175,7 +185,6 @@ Finishing or skipping saves the settings and never shows the onboarding again.
   | Context | Clips |
   |---|---|
   | onboarding step 1 | `hello`, then `idle` |
-  | warning pop-up (affected) | `alert` + `talk`, then `idle` |
   | sheet opens | `hello` once per session, else `nod`, then `idle` |
   | chip `affected` / `when` with an affected answer | `alert` + `talk` |
   | same chips, unaffected answer | `relief` + `talk` |
@@ -198,7 +207,7 @@ Finishing or skipping saves the settings and never shows the onboarding again.
   - `geo_result` with `{ granted: boolean }`
   - `province_pick` with `{ id }`
   - `verdict_shown` with `{ affected, place, msSinceOpen }`
-  - `assistant_warning_shown`, `assistant_open`
+  - `assistant_open`
   - `chip` with `{ id }`
   - `setting` with `{ name, value }`
   - `slider` (throttled to one per 2 s)
@@ -241,8 +250,8 @@ Only the text below may state facts. It was signed off against the sources in `w
 - `Các vòng tròn cho biết nơi tâm bão có khoảng 70% khả năng đi vào sau 24, 48 và 72 giờ. Bản tin bão của Việt Nam cũng vẽ vòng tròn 70% như vậy.` [R2, jma2023_prob_circle]
 - Source line: `Nguồn: Quyết định 18/2021/QĐ-TTg; Cơ quan Khí tượng Nhật Bản, báo cáo năm 2023; IBTrACS (NOAA).`
 
-### 10.3 Card "Làm gì khi bão tới?" and the verdict actions
-- The verdict card's 3 actions, in this order:
+### 10.3 Card "Làm gì khi bão tới?" and the `prepare` chip
+- The official advice shown by the `prepare` chip, in this order (not shown in the verdict card):
   1. `Cả nhà bàn trước chỗ trú ẩn an toàn nhất; khi chính quyền yêu cầu thì sơ tán ngay.` [B3]
   2. `Dự trữ đủ lương thực, nước uống, thuốc men và đồ dùng thiết yếu.` [B4]
   3. `Tuyệt đối không ra ngoài khi bão đang đổ bộ, trừ khi khẩn cấp và có hướng dẫn của chính quyền.` [D1]

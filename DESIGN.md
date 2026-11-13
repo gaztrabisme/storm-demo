@@ -6,7 +6,7 @@ Reader: whoever restyles the page. SPEC.md still decides behaviour, copy and tes
 
 **Light theme:** at a forecaster's desk, looking at a storm-track chart printed on warm paper: a fine latitude/longitude grid with degree labels at the edges, coastlines in thin ink, the storm's path plotted point by point with dates beside it, and handwritten-style notes pulled out to the open sea with fine leaders.
 
-**Dark theme:** the same chart on a satellite operator's night screen: deep navy ground, pale marks, a single warm accent.
+**Dark theme:** the same chart on a satellite operator's night screen: deep navy ground, pale marks, a single cool accent.
 
 The map is the page. The panel reads like the chart's caption column, not a stack of app cards.
 
@@ -38,12 +38,14 @@ The track is the main exhibit. Each 6-hour track point is one glyph:
 | land | `#E4DED3` | `#1A2433` |
 | coast, graticule | ink `#3A3F47` at 0.6 px; graticule dotted, lighter | `#8A97A8` |
 | ink (text, past track) | `#1F232A` | `#E8ECF1` |
-| accent (storm only) | oxblood `#A32035` | warm coral `#E8735A` |
-| wind area fill | accent at 18 % | accent at 22 % |
+| storm (neutral) | slate blue `#3E5671` | pale steel `#9DB2C9` |
+| official bulletin | deep green `#2E6B57` | sea green `#7CC3A6` |
+| wind area fill | storm at 18 % | storm at 22 % |
 | muted text | `#5F646C` | `#A3ADBA` |
 
-- The accent belongs to the storm. Buttons are ink: the primary button is ink-filled with paper text; secondary buttons are 1 px ink outline, square corners.
-- Severity on the verdict card: a 4 px accent rule on the left and an accent word, not a full pink box.
+- No red anywhere (SPEC 2.1): the storm colour is neutral and the page has no alarm colour. The storm colour belongs to the storm; the green belongs only to the official-bulletin block (a 4 px left rule, its label and its link).
+- The storm colour is used only for the storm. Buttons are ink: the primary button is ink-filled with paper text; secondary buttons are 1 px ink outline, square corners.
+- Verdict card: a 4 px storm-colour rule on the left; the heading in ink. No severity colour.
 - Check every text/background pair ≥ 4.5:1 (the tests measure `verdict-head` and `storm-summary`).
 
 ## 4. Type
@@ -59,7 +61,8 @@ The track is the main exhibit. Each 6-hour track point is one glyph:
 - Square corners, no shadows, no card boxes. Separate panel sections with 1 px hairlines and space.
 - Labels on the map have no background boxes; if a label crosses a line, give it a 2 px halo in the ground colour.
 - The demo label sits top-left as a small italic line with a hairline under it, not a dark pill.
-- Usui-chan's portrait stays 56 px; her bubble is paper with a 1 px ink edge, no shadow.
+- Usui-chan's portrait stays 56 px; the question sheet is paper with a 1 px ink edge, no shadow.
+- Official-bulletin block: one line under the top bar, paper ground, 4 px green rule on the left, the centre name as an underlined link. Footer disclaimer: small muted text, one line on desktop.
 - Satellite view: dark ground in both themes (it is space), a dotted reference circle for the geostationary orbit labelled "35.786 km" from SOURCES F3, the model in pale ink.
 
 ## 6. Must not break
