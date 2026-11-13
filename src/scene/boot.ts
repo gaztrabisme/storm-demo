@@ -32,6 +32,13 @@ const WHEEL_K = 0.002;
 const KEY_ZOOM = 1.5;
 const KEY_PAN = 0.15;
 const RESET_MS = 280;
+/**
+ * Pull and spring back (SPEC 6.2): a one-pointer drag the view cannot follow (any drag at zoom 1, past the region's
+ * edge when zoomed) shifts the picture by PULL_MAX of the map's shorter side times o / (o + that), o the pointer's
+ * overshoot in px: less than the pointer, never as far as PULL_MAX. On release it eases back in SPRING_MS.
+ */
+const PULL_MAX = 0.12;
+const SPRING_MS = 240;
 /** The share of the satellite trip over which a zoomed view widens back to the whole region on the way out. */
 const TRIP_UNZOOM = 0.3;
 /**
@@ -732,6 +739,83 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     clampView();
     viewMoved(z0, cx0, cy0);
   }
+  /**
+   * The pull: over is the pointer's travel (px) the view could not follow in this drag; pull is the picture's shift
+   * on screen (px) it gives. spring eases pull back to 0 after release.
+   */
+  const over = { x: 0, y: 0 };
+  const pull = { x: 0, y: 0, max: 0 };
+  const spring = { on: false, t0: 0, x0: 0, y0: 0 };
+  /** The view when the drag began: a drag that ends there only pulled (map_pull). */
+  const dragFrom = { zoom: 1, cx: 0.5, cy: 0.5 };
+  const pullLimit = () => PULL_MAX * Math.min(width, height);
+  function setPull(): void {
+    const r = Math.hypot(over.x, over.y);
+    const L = pullLimit();
+    const k = r > 0 ? L / (L + r) : 1;
+    pull.x = over.x * k;
+    pull.y = over.y * k;
+    if (r * k > pull.max) pull.max = r * k;
+    markDirty();
+  }
+  /** Gives the current picture shift back to `over` (a drag that catches the map while it springs back). */
+  function catchPull(): void {
+    spring.on = false;
+    const p = Math.hypot(pull.x, pull.y);
+    const L = pullLimit();
+    const k = p > 0 && p < L ? L / (L - p) : 0;
+    over.x = pull.x * k;
+    over.y = pull.y * k;
+    if (k === 0) pull.x = pull.y = 0;
+  }
+  /** One-pointer drag by (dx, dy) px: pans as far as the region allows; the rest of the travel pulls. */
+  function dragBy(dx: number, dy: number): void {
+    // Travel back towards the allowed view first undoes the pull.
+    if (over.x !== 0 && dx * over.x < 0) {
+      const t = over.x + dx;
+      if (t * over.x > 0) {
+        over.x = t;
+        dx = 0;
+      } else {
+        dx = t;
+        over.x = 0;
+      }
+    }
+    if (over.y !== 0 && dy * over.y < 0) {
+      const t = over.y + dy;
+      if (t * over.y > 0) {
+        over.y = t;
+        dy = 0;
+      } else {
+        dy = t;
+        over.y = 0;
+      }
+    }
+    const z = view.zoom;
+    const cx0 = view.cx;
+    const cy0 = view.cy;
+    if (dx !== 0 || dy !== 0) panBy(dx, dy);
+    const rx = dx - (cx0 - view.cx) * width * z;
+    const ry = dy - (cy0 - view.cy) * height * z;
+    // The degree clamp lands by bisection: a few hundredths of a px left over is no pull.
+    if (Math.abs(rx) > 0.01) over.x += rx;
+    if (Math.abs(ry) > 0.01) over.y += ry;
+    setPull();
+  }
+  /** The drag ended: the pull springs back (a cut under reduced motion); a drag that only pulled logs map_pull. */
+  function releasePull(): void {
+    over.x = over.y = 0;
+    const pulled = pull.max > 0.5;
+    pull.max = 0;
+    if (pull.x !== 0 || pull.y !== 0) {
+      spring.on = true;
+      spring.t0 = performance.now();
+      spring.x0 = pull.x;
+      spring.y0 = pull.y;
+      markDirty();
+    }
+    if (pulled && view.zoom === dragFrom.zoom && Math.abs(view.cx - dragFrom.cx) < 1e-9 && Math.abs(view.cy - dragFrom.cy) < 1e-9) init.onMapPull?.(view.zoom);
+  }
   /** Moves the map by (dx, dy) screen px: the picture follows the pointer. */
   function panBy(dx: number, dy: number): void {
     const z0 = view.zoom;
@@ -751,8 +835,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
   let offH = 0;
   function applyView(): void {
     let z = view.zoom;
-    let cx = view.cx;
-    let cy = view.cy;
+    let cx = view.cx - pull.x / (width * z);
+    let cy = view.cy - pull.y / (height * z);
     if (trip > 0) {
       const s = smooth(Math.min(1, trip / TRIP_UNZOOM));
       z = 1 + (z - 1) * (1 - s);
@@ -941,6 +1025,16 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
         clampView();
         moving = true;
       }
+    }
+    if (spring.on) {
+      const t = init.reducedMotion() ? 1 : Math.min(1, Math.max(0, (now - spring.t0) / SPRING_MS));
+      const s = 1 - smooth(t);
+      pull.x = spring.x0 * s;
+      pull.y = spring.y0 * s;
+      if (t >= 1) {
+        spring.on = false;
+        pull.x = pull.y = 0;
+      } else moving = true;
     }
     autoOnly = false;
     if (!flight.on && satView && trip === 1 && !close.held && !init.reducedMotion()) {
@@ -1419,6 +1513,12 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       gLeft = r.left;
       gTop = r.top;
     }
+    if (nPtr() === 0) {
+      dragFrom.zoom = view.zoom;
+      dragFrom.cx = view.cx;
+      dragFrom.cy = view.cy;
+      catchPull();
+    } else releasePull();
     ptrId[slot] = e.pointerId;
     ptrX[slot] = e.clientX;
     ptrY[slot] = e.clientY;
@@ -1448,7 +1548,7 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       mapD = d;
       mapMidX = mx;
       mapMidY = my;
-    } else panBy(dx, dy);
+    } else dragBy(dx, dy);
   }
   const ptrId = new Int32Array(2).fill(-1);
   const ptrX = new Float32Array(2);
@@ -1526,7 +1626,10 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
     if (ptrMap) {
       // One finger left of a pinch: it pans on from where it is.
       mapD = 0;
-      if (nPtr() === 0) ptrMap = false;
+      if (nPtr() === 0) {
+        ptrMap = false;
+        releasePull();
+      }
       return;
     }
     if (nPtr() === 0) close.held = false;
@@ -1632,6 +1735,8 @@ export const createGlobe: CreateGlobe = (init: GlobeInit): GlobeController => {
       ptrId.fill(-1);
       close.idleUntil = 0;
       reset.on = false;
+      spring.on = false;
+      over.x = over.y = pull.x = pull.y = pull.max = 0;
       container.tabIndex = -1;
       fly(1, FLY_SAT_MS);
     },

@@ -145,8 +145,9 @@ loadGlobe({
   avoid: () => [usui.sheet],
   frameAround: key.el,
   onMetrics: (m) => key.setMetrics(m),
-  // SPEC 7: map_move at most one per 2 s, and map_reset.
+  // SPEC 7: map_move and map_pull at most one per 2 s, and map_reset.
   onMapMove: throttle<number>(2000, (zoom) => logEvent('map_move', { zoom: Math.round(zoom * 1000) / 1000 })),
+  onMapPull: throttle<number>(2000, (zoom) => logEvent('map_pull', { zoom: Math.round(zoom * 1000) / 1000 })),
   onMapReset: () => logEvent('map_reset'),
 })
   .then((g) => {

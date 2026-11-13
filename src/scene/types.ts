@@ -34,6 +34,8 @@ export interface GlobeInit {
   onMapMove?: (zoom: number) => void;
   /** Called when btn-map-reset is pressed. */
   onMapReset?: () => void;
+  /** Called after a drag that only pulled the map and sprang back to where it started (SPEC 6.2), with the zoom; the caller throttles the log. */
+  onMapPull?: (zoom: number) => void;
 }
 
 /**
